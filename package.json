@@ -1,0 +1,35 @@
+{
+  "name": "orderflow-ai",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "test:db": "bash apps/api/test/sql/constraints.sh",
+    "test:e2e": "echo \"E2E smoke tests arrive in slice S6\" && exit 0",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format:check": "prettier --check .",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api",
+    "db:reset": "npm run db:reset -w apps/api",
+    "webhook:simulate": "tsx scripts/simulate-webhook.ts",
+    "mock:scenario": "tsx scripts/mock-scenario.ts",
+    "native:start": "echo \"Native app arrives with slice S0 completion\" && exit 0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

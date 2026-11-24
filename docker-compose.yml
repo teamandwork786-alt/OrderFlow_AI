@@ -1,0 +1,44 @@
+# Slice S1 stack: postgres, api, worker. web, analytics and mock-oidc are added by slices S0 and S5.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres_demo_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 20
+    # Not published to the host. For local inspection, add:  ports: ["127.0.0.1:5432:5432"]
+
+  migrate:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    command: ["bash", "scripts/db-migrate.sh"]
+    environment:
+      DATABASE_URL_OWNER: postgresql://orderflow_owner:owner_demo_password@postgres:5432/orderflow
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    command: ["npx", "tsx", "apps/api/src/server.ts"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://orderflow_app:app_demo_password@postgres:5432/orderflow
+    ports: ["3000:3000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    command: ["npx", "tsx", "apps/api/src/worker.ts"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://orderflow_app:app_demo_password@postgres:5432/orderflow
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
