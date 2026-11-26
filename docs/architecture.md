@@ -1,7 +1,7 @@
 # OrderFlow AI: Architecture and Decision Records
 
-**Version:** 4.3 (Standalone Web Edition) | **Date:** 26 November 2026
-**Aligned to:** PRD v4.3 | **Supersedes:** architecture v4.2, v4.1, v2.1 (Shopify and native edition) and the unreviewed v4.0 draft
+**Version:** 4.4 (Standalone Web Edition) | **Date:** 26 November 2026
+**Aligned to:** PRD v4.4 | **Supersedes:** architecture v4.3, v4.2, v4.1, v2.1 (Shopify and native edition) and the unreviewed v4.0 draft
 **Reading rule:** PRD requirement IDs (FR-xx, NFR-xx, D-xx) are used throughout. If this file and the PRD disagree, the PRD wins; record the conflict in `docs/proposed-changes.md`.
 
 ---
@@ -66,8 +66,8 @@ No `worker`. The only outbound action in Phase 1 is writing a mock email row.
 TypeScript strict; Node 22; npm workspaces; Express; Zod; Prisma (custom SQL in migrations); PostgreSQL 16; `jose`; `pino`; `helmet`, `cors`, `express-rate-limit`, `cookie-parser`; `oidc-provider` (mock issuer only); React 18, Vite, React Router, TanStack Query; **plain CSS**; Vitest, Supertest, Playwright; Docker Compose; ESLint 9 flat config; Prettier.
 
 **Approved 26 November 2026, installed when their slice starts:**
-- Slice 1B, image upload: `multer` 2.x (1.x has known denial-of-service advisories; do not use it) and `sharp` (re-encode photos, dropping EXIF location data; works on the Debian-slim image, which keeps native binaries simple).
-- Slice 2, offline: `vite-plugin-pwa` (app-shell service worker), `idb-keyval` (IndexedDB), `@tanstack/react-query-persist-client` with `@tanstack/query-async-storage-persister` (query cache). The offline **action queue** uses its own IndexedDB store through `idb-keyval`, never the query cache.
+- Slice 1D, image upload: `multer` 2.x (1.x has known denial-of-service advisories; do not use it) and `sharp` (re-encode photos, dropping EXIF location data; works on the Debian-slim image, which keeps native binaries simple).
+- Slice 2C, offline: `vite-plugin-pwa` (app-shell service worker), `idb-keyval` (IndexedDB), `@tanstack/react-query-persist-client` with `@tanstack/query-async-storage-persister` (query cache). The offline **action queue** uses its own IndexedDB store through `idb-keyval`, never the query cache.
 
 **Removed from the approved list:** `expo`, `react-native`, `expo-secure-store`, `jest-expo`, all Shopify tooling.
 
@@ -90,7 +90,7 @@ scripts/          db-migrate.sh, seed.ts, reset-demo.ts, simulate-payment.ts, gu
 PRD.md  AGENTS.md  plan.md  README.md  docker-compose.yml  .env.example
 volume `uploads` mounted at /uploads in the api container (not in git)
 ```
-Delete, do not hide: `apps/native`, `apps/api/src/integrations/shopify`, `apps/api/src/modules/webhooks-inbox`, `apps/api/src/modules/sync`, `mock_shopify_*` code, and `docs/adr` entries that describe Shopify behaviour (mark them Superseded, section 17).
+Already removed from `main` by the repo reset of 26 Nov 2026: `apps/native`, the Shopify adapters, `webhooks-inbox`, `sync`, `mock_shopify_*` code and the old plan. The earlier prototype stays on branch `legacy/s1-prototype` for reference only; never copy Shopify code back. `docs/adr` entries that describe Shopify behaviour are marked Superseded (section 17).
 
 ---
 
@@ -146,19 +146,19 @@ As PRD section 7. Notes that matter to implementation:
 `NUMERIC(12,2)`, `Prisma.Decimal` in code, decimal strings in JSON; no `number` arithmetic on money. UTC `TIMESTAMPTZ`; the server clock for every timestamp OrderFlow records. Reports convert with `AT TIME ZONE 'Asia/Karachi'` to build half-open local-day ranges.
 
 ### 8.3 Constraints and triggers
-Created by migration `0003_standalone_pivot` (Slice 1A) unless marked `0004` (Slice 3) or `0005` (Slice 5).
+Every constraint is created by the migration of the slice that introduces its table (`plan.md` section 6). Map: identity, audit, grants `0001`; orders, set-once, lifecycle graph, timestamp CHECKs, money, quantity and source CHECKs `0002`; image CHECKs `0004`; phone normalization `0005`; payment tables and unique event index `0006`; notes and epoch trigger `0007`; dispatch CHECK, unique index and precondition trigger `0008` (precondition replaced in `0011`); stock requests `0010`; address requests `0011`; refund paid-outside `0013`; reporting views `0014`.
 - **Set once** (extends `orders_set_once_guard`): `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`, `order_number`, `public_token`, `customer_user_id`.
 - **Lifecycle graph** (replaces `orders_lifecycle_guard`): allowed pairs are exactly `PENDING_PAYMENT→PAID`, `PENDING_PAYMENT→CANCELLED`, `PAID→PREPARING`, `PAID→CANCELLED`, `PREPARING→PAID`, `PREPARING→DISPATCHED`, `PREPARING→CANCELLED`, `DISPATCHED→DELIVERED`. Everything else raises.
 - **Timestamp CHECKs:** `lifecycle_status IN ('PAID','PREPARING','DISPATCHED','DELIVERED') → payment_verified_at IS NOT NULL`; `IN ('DISPATCHED','DELIVERED') → dispatched_at IS NOT NULL`; `= 'DELIVERED' → delivered_at IS NOT NULL`.
 - **Checklist epoch:** trigger refuses any decrease of `checklist_epoch`.
 - **Dispatch precondition:** `dispatches` BEFORE INSERT: order `PREPARING`, five completed `checklist_steps`, no `OPEN` row in `address_change_requests`.
 - **Address requests:** partial unique index `(order_id) WHERE status = 'OPEN'`; trigger blocks changing `proposed_address` and any status move other than `OPEN→APPLIED|DECLINED|VOID`; BEFORE INSERT trigger refuses the row when `now() >= orders.created_at + address_change_window_hours` or the order is not `PENDING_PAYMENT`, `PAID` or `PREPARING`; AFTER INSERT/UPDATE trigger sets `orders.has_pending_address_request = EXISTS(open request)` without touching `order_version`.
-- **Stock requests (`0004`):** partial unique index `(product_id) WHERE status = 'PENDING'`; status moves only from `PENDING`; `expires_at = created_at + stock_hold_hours`, set once.
-- **Refund paid-outside (`0005`):** fields set once, only while status is `APPROVED_MANUALLY`, amount `> 0` and `<=` the order total (trigger).
+- **Stock requests (`0010`):** partial unique index `(product_id) WHERE status = 'PENDING'`; status moves only from `PENDING`; `expires_at = created_at + stock_hold_hours`, set once.
+- **Refund paid-outside (`0013`):** fields set once, only while status is `APPROVED_MANUALLY`, amount `> 0` and `<=` the order total (trigger).
 - **Unique indexes:** one succeeded dispatch per order; `payment_events (provider, provider_event_id)`; `products.sku`; `checklist_steps (order_id, step_number)`; `users.oidc_subject`.
 - **CHECKs:** non-negative money; `quantity BETWEEN 1 AND 20`; tracking `^[A-Za-z0-9-]{6,30}$`; lifecycle in the six values; `payment_method` in its four values; `source` in (`STOREFRONT`,`MANUAL`); `availability` in its three values; `product_images.byte_size <= 5242880`; `product_images.content_type` in the three allowed types; a `STOREFRONT` order must have `customer_user_id`.
 - **Append-only:** `audit_events`, `order_notes`, `order_address_revisions` via `reject_modification()` on UPDATE and DELETE (blocks even the owner role).
-- **Existing 33 SQL checks** are adapted; new SQL checks cover every item above.
+- **SQL checks** are written in the slice that creates each object and re-run at every gate; the 33 checks of the earlier prototype (branch `legacy/s1-prototype`) may be consulted but are not reused as-is.
 
 ### 8.4 Versioning
 `order_version` bumps in the `lifecycle` module on each transition and on applying an address request. `checklist_epoch` increases only when Apply resets the checklist; it is separate from `order_version` because checklist actions deliberately do not carry `expected_version`. Checklist actions and creating an address request do not bump it; checklist is protected by the row lock, step order and step permission.
@@ -167,10 +167,10 @@ Created by migration `0003_standalone_pivot` (Slice 1A) unless marked `0004` (Sl
 `docker/postgres/init.sql` creates roles; `grants.sql` runs after migrations.
 - `orderflow_owner`: owns objects, runs migrations and seed/reset (TRUNCATE).
 - `orderflow_app`: SELECT, INSERT, UPDATE where needed; **no DELETE, no TRUNCATE**; no UPDATE on append-only tables; `order_items`, `product_images`: no UPDATE of immutable columns (only `sort_order` and `is_active` on images).
-- `orderflow_ro`: SELECT on the reporting views only (`report_orders_v`, `report_order_items_v`, `report_dispatches_v`, `report_refunds_v`; created in `0005`, owned by `orderflow_owner`, `security_barrier`). No grant on any base table. The views contain no address, phone, email, notes, audit, users, address requests, email outbox, payment reference, settings or idempotency data.
+- `orderflow_ro`: SELECT on the reporting views only (`report_orders_v`, `report_order_items_v`, `report_dispatches_v`, `report_refunds_v`; created in `0014`, owned by `orderflow_owner`, `security_barrier`). No grant on any base table. The views contain no address, phone, email, notes, audit, users, address requests, email outbox, payment reference, settings or idempotency data.
 
-### 8.6 Removed schema
-Drop `webhook_inbox`, `integration_state`, `worker_heartbeats`, `mock_shopify_orders`, `mock_controls`, and the `shopify_*`, `eligibility_*` and conflict columns; retire roles `staff` and `cap_address_update` and permission `checklist.update` (re-seed). This alters existing demo data, so the migration needs a human approval before merge (AGENTS section 13).
+### 8.6 Starting schema
+The schema starts fresh at `0001_identity`: the repo reset removed the earlier migrations, so nothing is dropped and no destructive-change approval is needed. The earlier Shopify tables (`webhook_inbox`, `integration_state`, `worker_heartbeats`, `mock_shopify_orders`, `mock_controls`), the `shopify_*`, `eligibility_*` and conflict columns, the roles `staff` and `cap_address_update` and the permission `checklist.update` are simply never created. A developer with an old local database runs `docker compose down -v` once.
 
 ---
 
@@ -387,7 +387,7 @@ Production limits are stated in the README: no HA, no backup certification, mock
 
 ## 17. Architecture Decision Records
 
-Old ADR-001 to ADR-009 described Shopify behaviour. They are kept as history and marked **Superseded by architecture v4.3** except where stated.
+Old ADR-001 to ADR-009 described Shopify behaviour. They are kept as history and marked **Superseded by architecture v4.4** except where stated.
 
 | New ADR | Decision | Replaces |
 |---|---|---|
@@ -406,6 +406,7 @@ Old ADR-001 to ADR-009 described Shopify behaviour. They are kept as history and
 | ADR-022 | Staff stock holds with time-based expiry evaluated on read, no job | Stock counts or a scheduler |
 | ADR-023 | `checklist_epoch` to invalidate checklist actions made before a reset | Comparing device timestamps |
 | ADR-024 | Analytics behind the API with an internal secret, reading only `security_barrier` views as `orderflow_ro` | Browser-facing analytics service |
+| ADR-025 | Vertical slices with additive per-slice migrations from `0001`; no foundation or hardening slice; Gate 5 as the final check | One up-front schema migration and a hardening slice |
 | Kept | OIDC with an issuer adapter and secure cookie session (old ADR-003); hexagonal ports; analytics isolation (old ADR-001) | |
 
 Each new ADR gets a file in `docs/adr/` with context, decision, alternatives and consequences before its slice starts.
@@ -436,8 +437,8 @@ Each new ADR gets a file in `docs/adr/` with context, decision, alternatives and
 ## 19. Demo limitations and open items
 - Payment and email are simulated; the demo says so on screen. PayFast and SMTP are Phase 2 (SMTP needs a retry mechanism).
 - Offline and image packages were approved on 26 Nov 2026 (section 4).
-- Decisions D-01 to D-38 are recorded in PRD section 16.
-- Migration `0003` needs human approval before merge (8.6).
+- Decisions D-01 to D-41 are recorded in PRD section 16.
+- Migrations are additive per slice (8.3); none drops existing data (8.6).
 
 ---
 
@@ -464,3 +465,4 @@ Each new ADR gets a file in `docs/adr/` with context, decision, alternatives and
 | 4.1 | 25 Nov 2026 | Standalone web edition aligned to PRD v4.1 |
 | 4.2 | 26 Nov 2026 | Customer accounts, step-level staff profiles and Admin staff-mode, product photo upload, `EmailAdapter`, address request flow, offline proactive lock and Owner/Admin-only offline dispatch |
 | 4.3 | 26 Nov 2026 | Gate 1 review: package approvals, timestamp CHECKs, checklist epoch, address window and reset, stock holds, staff scope and phone search, payment issues, report definition and analytics proxy with reporting views, single-insert email outbox, Owner-only staff-mode |
+| 4.4 | 26 Nov 2026 | Vertical slices: per-slice additive migrations from `0001` (8.3, 8.6), package slices renamed (1D, 2C), ADR-025 added, repo reset reflected in section 5 |

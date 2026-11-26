@@ -2,16 +2,16 @@
 
 A standalone web order-management and dispatch system for a small decoration-piece business in Pakistan (prices in PKR). Signed-in customers order from the store and follow their orders. Payment is verified, staff pack each order through a five-step checklist, dispatch it exactly once with a tracking number, and mark it delivered. Refund applications are tracked by hand; OrderFlow never moves money.
 
-**Status (26 Nov 2026):** specification v4.3 is written and awaiting Gate 1 sign-off (`plan.md` section 9). The repository still contains the interim database foundation from the earlier prototype; the application is built slice by slice from Slice 1A. Nothing below should be read as "already working" unless `plan.md` records the slice as accepted.
+**Status (26 Nov 2026):** specification v4.4 is written and awaiting Gate 1 sign-off (`plan.md` section 9). This branch holds documentation only: no application code exists yet. The application is built in 15 vertical slices (1A to 5C), each ending in something a person can use. The earlier prototype is kept on branch `legacy/s1-prototype` for reference. Nothing below should be read as "already working" unless `plan.md` records the slice as accepted.
 
 ## Documents
 
 | Document | Purpose |
 |---|---|
-| [`PRD.md`](PRD.md) | Requirements v4.3: roles, lifecycle, functional requirements, scenarios, decisions. Highest authority. |
-| [`docs/architecture.md`](docs/architecture.md) | Architecture v4.3: modules, database constraints, flows, ADR-010 to ADR-024. |
+| [`PRD.md`](PRD.md) | Requirements v4.4: roles, lifecycle, functional requirements, scenarios, decisions. Highest authority. |
+| [`docs/architecture.md`](docs/architecture.md) | Architecture v4.4: modules, database constraints, flows, ADR-010 to ADR-025. |
 | [`AGENTS.md`](AGENTS.md) | Rules for AI coding agents and the slice workflow. |
-| [`plan.md`](plan.md) | Master plan: Slices 1A, 1B, 1C, 2, 3, 4, 5, scenario ownership, Gate 1 sign-off. |
+| [`plan.md`](plan.md) | Master plan: 15 vertical slices (1A to 5C), per-slice migrations, scenario ownership, Gate 1 sign-off. |
 
 If documents disagree, the order is PRD, architecture, `AGENTS.md`, `plan.md`.
 
@@ -41,11 +41,11 @@ packages/shared/  Zod schemas, permission map, lifecycle graph, shared types
 api-spec/         openapi.yaml
 docs/             architecture.md, adr/, evidence/, wireframes/, proposed-changes.md
 docker/           Dockerfiles, postgres init.sql and grants.sql
-scripts/          db-migrate.sh, reset-demo.ts, guard.ts (seed and payment simulator arrive in 1A and 1C)
+scripts/          db-migrate.sh, seed and reset scripts (1A), payment simulator (1F)
 uploads volume    product photos at /uploads (never committed)
 ```
 
-Today only `apps/api` (interim, being reworked), `packages/shared`, `docker/`, `scripts/` and `docs/` exist. The rest arrives with the slices in `plan.md`.
+Today only the documents exist (`README.md`, `PRD.md`, `AGENTS.md`, `plan.md`, `docs/architecture.md`). Each directory above is created by the first slice that needs it (`plan.md` section 4); Slice 1A creates the scaffold.
 
 ## Local setup (Docker and PostgreSQL)
 
@@ -54,14 +54,14 @@ Requirements: Docker with Compose, Node 22 (`.nvmrc`).
 ```bash
 cp .env.example .env        # demo values only; never commit .env
 npm install
-docker compose up --build   # PostgreSQL 16, migrations, API
+docker compose up --build   # PostgreSQL 16, migrations, API, mock sign-in, web
 docker compose down         # stop
 ```
 
 - PostgreSQL is not published to the host. To inspect it locally, add `ports: ["127.0.0.1:5432:5432"]` to the `postgres` service.
 - The init script creates the three roles with demo passwords; `npm run db:migrate` applies migrations and then `docker/postgres/grants.sql`.
 - Seed and reset scripts are destructive and run only with `ALLOW_DESTRUCTIVE_SEED=true`.
-- The `.env.example` file still lists some prototype variables; Slice 1A replaces them with the v4.3 set.
+- `.env.example`, Docker Compose and the scripts below are created by Slice 1A; until then these steps do not work.
 
 Commands (`AGENTS.md` section 12): `npm run db:migrate`, `db:seed`, `db:reset`, `npm test`, `npm run test:sql`, `npm run test:e2e`, `npm run lint`, `npm run typecheck`, `npm run format:check`. Some of these are added by the slices that need them.
 

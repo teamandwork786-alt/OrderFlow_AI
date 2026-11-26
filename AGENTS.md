@@ -1,6 +1,6 @@
 # AGENTS.md: OrderFlow AI
 
-**Version:** 4.3 | **Date:** 26 November 2026 | **Aligned to:** PRD v4.3 and `docs/architecture.md` v4.3 | **Supersedes:** AGENTS.md v4.2, v4.1, v2.1 and the unreviewed "v4.0" draft
+**Version:** 4.4 | **Date:** 26 November 2026 | **Aligned to:** PRD v4.4 and `docs/architecture.md` v4.4 | **Supersedes:** AGENTS.md v4.3, v4.2, v4.1, v2.1 and the unreviewed "v4.0" draft
 
 Instructions for any AI coding agent (Claude Code, Cursor, Codex, Antigravity or similar) working in this repository. Read this file fully, then the parts of the PRD and `docs/architecture.md` your task touches, before every task. Human developers treat it as the team's working agreement with the agent.
 
@@ -14,7 +14,7 @@ OrderFlow AI is a standalone web system for Hannan's decoration-piece business i
 
 ## 2. Document precedence
 
-1. `PRD.md` v4.3
+1. `PRD.md` v4.4
 2. `docs/architecture.md` (ADR-010 to ADR-016 and the kept decisions)
 3. `api-spec/openapi.yaml`
 4. This file
@@ -54,8 +54,8 @@ Fixed stack (architecture section 4): TypeScript strict; Node 22; Express; Zod; 
 **Not approved, do not use:** Tailwind or any CSS framework, React 19, any Expo or React Native package, any Shopify package, any queue or worker library.
 
 **Approved on 26 November 2026, to be installed only when their slice starts:**
-- Slice 1B: `multer` **2.x only** (never 1.x) and `sharp`. `busboy` is not approved as a direct dependency.
-- Slice 2: `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue uses its own IndexedDB store, never the persisted query cache.
+- Slice 1D: `multer` **2.x only** (never 1.x) and `sharp`. `busboy` is not approved as a direct dependency.
+- Slice 2C: `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue uses its own IndexedDB store, never the persisted query cache.
 
 **Dependency rule:** any package not listed needs human approval first. Your request states purpose, alternatives considered, size and maintenance status. Pin versions through the lockfile.
 
@@ -208,7 +208,7 @@ Details live in the PRD and `docs/architecture.md`. These are the rules agents b
 2. Errors carry a machine-readable `code`, a human message and a `correlation_id` (architecture 13).
 3. **Database:** change `prisma/schema.prisma`, then create a migration. Constraints Prisma cannot express (triggers, partial unique indexes, grants) go in custom SQL in the same migration. Migrations are committed and reproducible. Never edit a merged migration; never run `prisma db push`.
 4. Never weaken a constraint, trigger or grant listed in architecture 8.3 and 8.5.
-5. Migration `0003_standalone_pivot` drops tables and columns that hold demo data. It needs explicit human approval before merge.
+5. Each migration is additive and created in the slice that first uses its tables (`plan.md` section 6). Never create tables or columns for a later slice. A migration that alters or drops existing data needs explicit human approval before merge.
 6. Seed and reset scripts are destructive. They run only with `ALLOW_DESTRUCTIVE_SEED=true`, print their effect first, and connect with `DATABASE_URL_OWNER`. Never run them automatically. Never grant the app role DELETE or TRUNCATE.
 7. Compose must set database URLs per service; a shared `.env` value must never override a container's database host.
 
@@ -230,7 +230,7 @@ Details live in the PRD and `docs/architecture.md`. These are the rules agents b
 
 ## 10. Testing and quality gates
 
-**Per slice:** unit tests for domain rules; integration tests for repositories and endpoints (Vitest, Supertest, real PostgreSQL in Docker); **SQL constraint tests** for every trigger, unique index, CHECK and grant (the existing suite is adapted and extended); E2E smoke where the slice adds a principal workflow (Playwright). Use boundary tests: tracking length 5, 6, 30, 31 and bad punctuation; amounts; report date ranges; `order_version`.
+**Per slice:** unit tests for domain rules; integration tests for repositories and endpoints (Vitest, Supertest, real PostgreSQL in Docker); **SQL constraint tests** for every trigger, unique index, CHECK and grant (written in the slice that creates the object, then re-run at every gate); E2E smoke where the slice adds a principal workflow (Playwright). Use boundary tests: tracking length 5, 6, 30, 31 and bad punctuation; amounts; report date ranges; `order_version`.
 
 **Mandatory scenarios** are PRD section 12 items 1 to 68. Each scenario has exactly one owning slice in `plan.md`. Each slice owns those in its scope and must have them passing before Accept.
 
@@ -245,7 +245,7 @@ Details live in the PRD and `docs/architecture.md`. These are the rules agents b
 ## 11. Workflow
 
 ### 11.1 Slices
-Defined by the human planner in `plan.md`. Each slice cuts through UI, API, domain logic, persistence and tests. A new slice may be added only by the human planner.
+Defined by the human planner in `plan.md`. Every slice is vertical: it cuts through UI, API, domain logic, persistence and tests, and ends in an outcome a named person can perform. There is no foundation slice and no hardening slice; the final check is Gate 5. A new slice may be added only by the human planner.
 
 ### 11.2 Slice loop
 1. Ibrahim records scope and acceptance criteria.
@@ -340,3 +340,4 @@ Do not stop for minor details that are cheap to change: take the safer option, s
 | 4.1 | 25 Nov 2026 | Standalone web edition: all v2.1 rules kept where they still apply, Shopify and native removed, payment, offline and override rules added |
 | 4.2 | 26 Nov 2026 | Customer accounts and isolation rules; step-level staff profiles and Admin staff-mode; address request rules; product photo and email rules; offline proactive lock and Owner/Admin-only offline dispatch; new pending packages |
 | 4.3 | 26 Nov 2026 | Gate 1 review: package approvals recorded, search and staff scope rules, checklist epoch and address reset, stock-hold rules without jobs, price consent, report and analytics rules, single-insert email outbox, Owner-only staff-mode, five Needs attention groups, scenarios 1 to 68 |
+| 4.4 | 26 Nov 2026 | Vertical slices: per-slice additive migrations, package slices renamed (1D, 2C), slice rule restated, no foundation or hardening slice |

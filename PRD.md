@@ -1,6 +1,6 @@
 # OrderFlow AI: Product Requirements Document
 
-**Version:** 4.3 (Standalone Web Edition) | **Date:** 26 November 2026
+**Version:** 4.4 (Standalone Web Edition) | **Date:** 26 November 2026
 **Supersedes:** PRD v4.2 and v4.1 (25 to 26 Nov 2026), v3.0 (Shopify and native-app edition) and the unreviewed "v4.0" draft
 **Client:** Hannan's decoration-piece business, Pakistan | **Currency:** PKR only
 **Source-of-truth order:** this PRD, then `docs/architecture.md`, then `api-spec/openapi.yaml`, then `AGENTS.md`
@@ -31,6 +31,15 @@
 | Wrong-address complaint flow | Customer request, Admin/Owner applies or declines, fourth "Needs attention" group (FR-01, FR-03, FR-04) |
 | Checklist screen | Numbered collapsible steps 1 to 5 (FR-05) |
 | Offline | Dispatch locked up front with a clear message; only Owner and Admin may queue an offline dispatch, and only when the Owner override is on (FR-07) |
+
+### From v4.3 to v4.4 (vertical slices, 26 Nov 2026)
+
+| Area | Change |
+|---|---|
+| Slices | All slices are vertical: 15 slices (1A to 1F, 2A to 2C, 3, 4A, 4B, 5A to 5C). There is no foundation slice and no hardening slice; Gate 5 is a gate (D-33, D-39, D-40) |
+| Migrations | Each slice creates the database objects it uses in its own additive migration, numbered from `0001` (D-41). The repo reset removed the earlier schema, so no migration drops demo data |
+| Scenario ownership | Scenarios 16, 18, 29, 40, 49, 67, 68 are re-owned to the slice that completes them (`plan.md` 5.3); the scenario list itself is unchanged |
+| Packages | Image upload packages are installed in Slice 1D; offline packages in Slice 2C |
 
 ### From v4.2 to v4.3 (Gate 1 review, 26 Nov 2026)
 
@@ -407,7 +416,7 @@ Names follow the existing schema where the concept survives.
 
 | Table | Purpose and key rules |
 |---|---|
-| `users`, `roles`, `permissions`, `user_roles`, `role_permissions` | Existing. New roles and keys seeded (section 2). Retired: `staff`, `cap_address_update`, `checklist.update`. Unique `oidc_subject`; first sign-in uses `INSERT ... ON CONFLICT` |
+| `users`, `roles`, `permissions`, `user_roles`, `role_permissions` | Created in `0001_identity`; roles and keys seeded (section 2). Never created: `staff`, `cap_address_update`, `checklist.update`. Unique `oidc_subject`; first sign-in uses `INSERT ... ON CONFLICT` |
 | `products` (new) | `id`, `sku` unique, `title`, `description`, `price NUMERIC(12,2) CHECK (>= 0)`, `availability` (`AVAILABLE`, `HIDDEN`, `OUT_OF_STOCK`) |
 | `product_images` (new) | `id`, `product_id`, `file_name` (server UUID plus extension), `content_type` (`image/jpeg`, `image/png`, `image/webp`), `byte_size CHECK (<= 5242880)`, `sort_order`, `is_active`, `created_by`, `created_at`. Never deleted by the app |
 | `product_stock_requests` (new) | `product_id`, `order_id` (nullable), `requested_by`, `reason`, `status` (`PENDING`, `APPROVED`, `DECLINED`, `EXPIRED`), `expires_at`, `reviewed_by`, `reviewed_at`, `decision_note`, `created_at`. Partial unique index: one `PENDING` per product. Status moves only from `PENDING` |
@@ -420,12 +429,14 @@ Names follow the existing schema where the concept survives.
 | `payment_events` (new, replaces `webhook_inbox`) | `provider`, `provider_event_id`, `order_id`, `amount`, `currency`, `signature_valid`, `status` (`APPLIED`, `REJECTED`), `reason`, `received_at`, `reviewed_by`, `reviewed_at`. Unique `(provider, provider_event_id)`. Raw body not stored |
 | `email_outbox` (new) | `order_id`, `to_address`, `subject`, `body_text`, `status` (`STORED`, `FAILED`), `error_code`, `created_at`. **Inserted once, inside the order transaction**; the adapter only updates its status. Readable only with `system.manage` |
 | `idempotency_keys` (new) | `request_id` (unique with actor scope), `endpoint`, `payload_hash`, `response_status`, `response_body`, `created_at` |
-| `system_settings` (new) | `key` primary key, `value` jsonb, `updated_by`, `updated_at`. Keys, all seeded by migration `0003`: `allow_offline_dispatch_override` (false), `admin_can_perform_staff_tasks` (false), `sla_unstarted_hours` (24), `delivery_charge_pkr` (0.00), `address_change_window_hours` (4), `stock_hold_hours` (4) |
+| `system_settings` (new) | `key` primary key, `value` jsonb, `updated_by`, `updated_at`. Each key is seeded by the migration of the slice that introduces it (`plan.md` section 6); the final set is: `allow_offline_dispatch_override` (false), `admin_can_perform_staff_tasks` (false), `sla_unstarted_hours` (24), `delivery_charge_pkr` (0.00), `address_change_window_hours` (4), `stock_hold_hours` (4) |
 | `refund_applications`, `refund_application_items` | Existing, order link now local. Add `paid_outside_amount`, `paid_outside_reference`, `paid_outside_recorded_by`, `paid_outside_recorded_at`, set once, only when `APPROVED_MANUALLY`, amount at most the order total (trigger) |
 | `order_notes`, `audit_events` | Existing, append-only by trigger |
 | Reporting views (new) | `report_orders_v` (order id, number, lifecycle, totals, the three timestamps, cancelled flag), `report_order_items_v` (order id, product title, SKU, quantity), `report_dispatches_v` (order id, `dispatched_at`, `is_offline`), `report_refunds_v` (application fields, order number, customer name, paid-outside fields). No address, phone, email, notes, audit or payment reference |
 
-**Removed tables:** `webhook_inbox`, `integration_state`, `worker_heartbeats`, `mock_shopify_orders`, `mock_controls`.
+**Not carried over from the earlier design (never created):** `webhook_inbox`, `integration_state`, `worker_heartbeats`, `mock_shopify_orders`, `mock_controls`.
+
+**Delivery of the schema:** the tables and columns below are the final shape. Each arrives in the migration of the slice that first uses it (`plan.md` section 6), never earlier.
 
 **Integrity rules:** money is `NUMERIC(12,2)` with non-negative CHECKs, decimal strings in JSON; all timestamps `TIMESTAMPTZ` UTC, server clock only for anything OrderFlow records; set-once triggers on `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`, `order_number`, `public_token`, `customer_user_id` and the paid-outside fields; the lifecycle trigger enforces the graph in section 6; the timestamp CHECKs in section 6; `checklist_epoch` only increases; foreign keys everywhere; `orderflow_app` has no DELETE or TRUNCATE; **`orderflow_ro` can read only the reporting views** and nothing else.
 
@@ -608,8 +619,8 @@ TypeScript strict; Node 22; Express; Zod; PostgreSQL 16; Prisma with custom SQL 
 **Ports (hexagonal):** `PaymentAdapter` (mock now) and `EmailAdapter` (mock now, stores to `email_outbox`). Real implementations (PayFast, SMTP) are Phase 2 and the SMTP one will need a retry mechanism.
 
 **Packages approved on 26 November 2026, installed when their slice starts:**
-- Image upload (Slice 1B): `multer` 2.x (multipart parsing) and `sharp` (re-encoding to strip location metadata). `busboy` is not used directly.
-- Offline mode (Slice 2): `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue lives in its own IndexedDB store, separate from the query cache.
+- Image upload (Slice 1D): `multer` 2.x (multipart parsing) and `sharp` (re-encoding to strip location metadata). `busboy` is not used directly.
+- Offline mode (Slice 2C): `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue lives in its own IndexedDB store, separate from the query cache.
 
 Docker Compose services: `postgres`, `migrate`, `api`, `analytics`, `mock-oidc`, `web`; volumes `pgdata` and `uploads` (mounted at `/uploads` in `api`). No `worker`, no `native`. New variables: `EMAIL_ADAPTER=mock`, `UPLOAD_DIR=/uploads`, `UPLOAD_MAX_BYTES=5242880`, `PUBLIC_BASE_URL`.
 
@@ -638,7 +649,7 @@ No card data is stored, processed or transmitted. Customer accounts hold name an
 | Offline work recorded against an old address | `checklist_epoch` rejects it at sync |
 | Phone search used to look people up | Exact match only, permission required, rate limited, value never logged |
 | Staff misuse stock reports to block sales | Hold lasts 4 hours at most unless approved; every report is audited with the reporter |
-| Existing code written for Shopify | Migration `0003` pivots the schema; removed modules are deleted, not hidden |
+| Existing code written for Shopify | Removed from `main` by the repo reset (26 Nov 2026); the prototype stays on branch `legacy/s1-prototype` for reference only and is never copied back |
 
 ---
 
@@ -678,12 +689,15 @@ No card data is stored, processed or transmitted. Customer accounts hold name an
 | D-30 | Reports visible to Owner, Admin, and staff with `cap_report` |
 | D-31 | Weekly report buckets start on Monday, Karachi time |
 | D-32 | **Confirmed.** All three staff profiles hold `order.exception.record` |
-| D-33 | Slice 1 runs as three gated parts, 1A, 1B and 1C (`plan.md`) |
+| D-33 | **Superseded by D-39.** (Earlier: Slice 1 ran as three gated parts, 1A, 1B and 1C) |
 | D-34 | `availability` (`AVAILABLE`, `HIDDEN`, `OUT_OF_STOCK`) replaces `is_available` |
 | D-35 | Orders carry `expected_total`; a mismatch returns `PRICE_CHANGED` |
 | D-36 | The address window limits submitting only; an open request stays open until decided |
 | D-37 | Orders with an open address request are hidden from staff queues and search, not only flagged |
 | D-38 | Stock holds expire by time, checked on read; no background job |
+| D-39 | Slices are vertical: 15 slices, 1A to 5C (`plan.md`); each ends in an outcome a named person can perform |
+| D-40 | No separate foundation or hardening slice; scaffolding is built in the first slice that needs it, hardening is in every slice's exit criteria, and Gate 5 is the final product check |
+| D-41 | Per-slice additive migrations numbered from `0001`; scenarios 16, 18, 29, 40, 49, 67, 68 re-owned (`plan.md` 5.3) |
 
 ---
 
@@ -696,3 +710,4 @@ No card data is stored, processed or transmitted. Customer accounts hold name an
 | 4.1 | 25 Nov 2026 | Standalone web edition, errors in the 4.0 draft corrected, all retained engineering guarantees restored |
 | 4.2 | 26 Nov 2026 | Customer sign-in and `/my-orders`; three staff profiles and Admin staff-mode toggle; product management and photo upload; `EmailAdapter` with mock outbox; wrong-address request flow and fourth Needs attention group; collapsible checklist; offline proactive lock and Owner/Admin-only offline dispatch |
 | 4.3 | 26 Nov 2026 | Gate 1 review: TA requirements, phone search, stock availability (FR-15), address window and checklist reset, checklist epoch, price-change check, wider payment issues, full report definition, paid-outside refund record, staff notes, Owner-only staff-mode, timestamp CHECKs, reporting views, package approvals, scenarios 45 to 68 |
+| 4.4 | 26 Nov 2026 | Vertical slices: 15 slices, per-slice migrations from `0001`, no foundation or hardening slice, scenarios re-owned, package slices renamed (D-39 to D-41) |
