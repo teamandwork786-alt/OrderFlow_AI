@@ -1,6 +1,22 @@
+# dependencies and build output
 node_modules/
 dist/
-.env
-*.log
+build/
 coverage/
-.expo/
+*.tsbuildinfo
+# local secrets (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+# logs
+*.log
+npm-debug.log*
+# uploaded runtime media (product images)
+uploads/
+/uploads
+# Playwright and editor/OS noise
+playwright-report/
+test-results/
+.DS_Store
+.vscode/
+.idea/

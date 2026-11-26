@@ -1,2185 +1,698 @@
-# OrderFlow AI --- Product Requirements Document
-
-**Version:** 3.0 --- Consolidated Final Project Baseline\
-**Date:** 23 November 2026\
-**Status:** Approved working baseline for the student-project demo\
-**Supersedes:** `AI&HUMAN_VERIFIED_PRD.md` Version 2.0\
-**Product:** OrderFlow AI for Hannan's decoration-piece business\
-**Primary integration:** Shopify\
-**Target milestone:** Thursday, 26 November 2026 (team target;
-instructor deadline takes precedence)
-
-------------------------------------------------------------------------
-
-## Document control
-
-### Purpose of this revision
-
-This PRD consolidates the human-validated Version 2.0 with the decisions
-made in the project discussion through 23 November 2026. It resolves the
-implementation ambiguities that can reasonably be decided from the
-agreed scope and records explicit limits where the demo must not pretend
-to provide production functionality.
-
-This document is the product requirements source of truth for the
-project. Architecture, ADRs, API contracts, database design,
-implementation plans, tests and the README must agree with it. If a
-later document conflicts with this PRD, the PRD wins until the team
-approves and records a change.
-
-### Decision labels
-
--   **Confirmed:** Explicitly selected or approved by the team.
--   **Resolved default:** A concrete decision selected to remove an
-    implementation blocker. It is part of this PRD baseline unless the
-    team later changes it through a recorded change.
--   **Demo limitation:** Deliberately not production-complete; it must
-    be clearly disclosed in the demo and README.
--   **Out of scope:** Must not be implemented in this project version.
-
-------------------------------------------------------------------------
-
-# 1. Product overview
-
-## 1.1 Purpose
-
-OrderFlow AI is an internal order-operations system for Hannan's
-decoration-piece business. It gives authorized staff a clear view of
-Shopify orders that are eligible for handling, guides them through
-parcel preparation, records dispatch and delivery progress, and provides
-an order timeline and operational reports.
-
-The product consists of:
-
-1.  A responsive web application for desktop and mobile browsers.
-2.  A native mobile application for staff, built with React Native and
-    Expo.
-3.  A shared backend API and PostgreSQL database.
-4.  A Shopify integration layer that supports both a deterministic mock
-    adapter for the demo and a real Shopify adapter for a development
-    store.
-
-Both applications use the same backend and business rules. Neither app
-connects directly to Shopify or directly edits the database.
-
-## 1.2 Problem statement
-
-Staff need to identify orders that have genuinely been paid, prepare the
-correct products and quantities, avoid duplicate or unsafe dispatch
-actions, and know which orders have been delivered. These activities
-should be visible in one operational system without confusing payment
-status, preparation status, dispatch status and delivery status.
-
-The system must also retain a traceable record of staff actions and
-refund requests, while avoiding automated financial actions that the
-team has not approved.
-
-## 1.3 Product goals
-
--   Import and synchronize eligible Shopify orders.
--   Treat Shopify as the source of truth for commerce and payment facts.
--   Show order number, payment state, lifecycle state, customer details,
-    product details and quantities.
--   Store the customer delivery address in OrderFlow's database for
-    operational use.
--   Guide staff through the approved five-step packing checklist.
--   Require an explicit confirmation and server-side checks before
-    dispatch.
--   Safely recover from an uncertain Shopify dispatch response without
-    creating a duplicate fulfillment.
--   Record delivery once and preserve it as an irreversible lifecycle
-    milestone.
--   Provide an order timeline showing important system and staff events.
--   Provide a dispatch-performance report.
--   Record refund applications manually and generate a list of
-    applicants with the relevant product details.
--   Support role-based access for the Owner/Admin and specifically
-    authorized staff.
--   Work in a Shopify mock mode for a reliable demonstration and provide
-    a real Shopify adapter behind the same interface.
--   Run locally using Docker Compose.
-
-## 1.4 Success criteria
-
-The demo is successful when the team can:
-
-1.  Start the complete system using the documented local Docker
-    workflow.
-2.  Sign in using the local demo OIDC identity provider.
-3.  create or replay sample Shopify webhook deliveries and see eligible
-    paid orders appear.
-4.  Open an order and see its products, quantities, customer and
-    delivery information.
-5.  Complete the five packing steps in order.
-6.  Dispatch an eligible order once, with a confirmation and safe
-    timeout reconciliation.
-7.  Record delivery once, with actor and timestamp.
-8.  View the order timeline.
-9.  Submit and manually review a refund application without issuing an
-    automated refund.
-10. View the dispatch report and refund-applicant list.
-11. Demonstrate role restrictions, webhook signature validation,
-    duplicate handling and failure recovery.
-12. Run the automated tests and show the evidence log.
-
-## 1.5 Non-goals
-
-The following are not part of this project version:
-
--   Customer-facing checkout or order creation.
--   Importing orders from social-media messages.
--   Payment collection, bank-token verification or bank reconciliation.
--   Automated refunds, automatic refund calculations or automatic
-    payment transfers.
--   Courier-driver accounts or a courier mobile application.
--   A live courier-provider integration.
--   AI customer-service chatbots.
--   Replacing Shopify's storefront or Shopify Admin.
--   Editing product prices, order totals, line items or quantities in
-    OrderFlow.
--   Offline dispatch or queued dispatch while disconnected.
--   Multi-store or multi-tenant SaaS support.
--   Production hosting, high availability, disaster recovery
-    certification or a production security audit.
--   Inventory management, warehouse stock control or purchase-order
-    management.
-
-------------------------------------------------------------------------
-
-# 2. Users, roles and permissions
-
-## 2.1 User types
-
-### Owner
-
-The business owner. The Owner has all OrderFlow permissions, including
-user/role administration, order operations, reports, refund-application
-review and audit access.
-
-### Admin
-
-A trusted administrator. The Admin has the same operational permissions
-as the Owner for the demo, except that the Owner account remains the
-highest-level account and is the only account allowed to grant or revoke
-the Owner role.
-
-### Authorized Staff
-
-A staff account explicitly granted the relevant permissions by the Owner
-or Admin. Staff can perform assigned order-handling actions but cannot
-manage users, change permissions, access restricted audit administration
-or change system configuration.
-
-### Customer
-
-A customer places an order through the Shopify storefront. Customers do
-not sign in to OrderFlow.
-
-### Shopify
-
-The external commerce platform. Shopify owns the commerce record,
-payment/financial state, original order items and Shopify fulfillment
-record.
-
-## 2.2 Permission matrix
-
-  --------------------------------------------------------------------------------
-  Action                            Owner               Admin     Authorized Staff
-  -------------------- ------------------ ------------------- --------------------
-  View eligible orders                Yes                 Yes                  Yes
-  and order details                                           
-
-  View customer                       Yes                 Yes     Yes, if assigned
-  delivery address                                                    order access
-
-  View order timeline                 Yes                 Yes                  Yes
-
-  Update packing                      Yes                 Yes                  Yes
-  checklist                                                   
-
-  Start preparation                   Yes                 Yes                  Yes
-
-  Dispatch an order                   Yes                 Yes            Only with
-                                                                 `dispatch.create`
-
-  Mark an order                       Yes                 Yes            Only with
-  delivered                                                     `delivery.confirm`
-
-  Submit a refund                     Yes                 Yes     Yes, if assigned
-  application on                                                      order access
-  behalf of a customer                                        
-
-  Review/decide refund                Yes                 Yes                   No
-  applications                                                
-
-  View dispatch and                   Yes                 Yes           No, unless
-  refund reports                                                  `report.view` is
-                                                                explicitly granted
-
-  View audit history                  Yes                 Yes  Limited to relevant
-                                                                    order timeline
-
-  Manage staff and                    Yes         Yes, except                   No
-  permissions                               granting/revoking 
-                                                        Owner 
-
-  Change                              Yes                 Yes                   No
-  integration/system                                          
-  settings                                                    
-  --------------------------------------------------------------------------------
-
-Permissions are checked by the backend on every protected request.
-Hiding a button in the UI is not authorization.
-
-## 2.3 Authentication
-
--   Use OpenID Connect (OIDC) as the authentication protocol.
--   The local demo uses a mock OIDC issuer so the project can run
-    without a paid or externally configured identity service.
--   Auth0 is the documented production-compatible identity provider
-    option.
--   The application must use an OIDC provider adapter so changing the
-    issuer does not require rewriting business logic.
--   Access tokens are short-lived; refresh/session handling is delegated
-    to the identity provider.
--   Tokens must be stored using platform-secure storage on native
-    devices and secure, HTTP-only cookies or an equivalent secure web
-    session on the web client. Do not put long-lived tokens in local
-    storage.
--   Passwords are never stored by OrderFlow when the OIDC provider
-    manages credentials.
--   Demo credentials must be seeded and documented separately from
-    production secrets.
--   All secrets are environment variables and must never be committed to
-    Git.
-
-**Demo limitation:** The local mock issuer demonstrates the OIDC
-boundary and role enforcement; it is not a production identity service.
-A real Auth0 tenant and credentials are not required for the local demo.
-
-------------------------------------------------------------------------
-
-# 3. Domain terminology and source-of-truth rules
-
-## 3.1 Terms
-
-  -----------------------------------------------------------------------
-  Term                                Meaning
-  ----------------------------------- -----------------------------------
-  Shopify order                       The commerce order created in
-                                      Shopify.
-
-  Eligible order                      An order that meets the payment,
-                                      cancellation, currency, integrity
-                                      and fulfillment checks required for
-                                      OrderFlow handling.
-
-  Payment verified                    Shopify reports a qualifying
-                                      successful payment and the order
-                                      passes OrderFlow's eligibility
-                                      checks.
-
-  Preparing                           Staff have started picking,
-                                      checking and packing the order.
-
-  Checklist                           The five ordered packing checks
-                                      required before dispatch.
-
-  Dispatch                            The action that creates or confirms
-                                      the Shopify fulfillment and records
-                                      the OrderFlow dispatch milestone.
-
-  Pending confirmation                The dispatch request may have
-                                      reached Shopify, but OrderFlow has
-                                      not yet established the final
-                                      result.
-
-  Delivered                           An authorized user has recorded
-                                      that the parcel was delivered.
-
-  Refund application                  A manual record that a customer
-                                      asked for a refund. It is not a
-                                      refund transaction.
-
-  Order timeline                      A chronological, human-readable
-                                      history of significant order
-                                      events.
-
-  Webhook inbox                       A durable queue/table that stores
-                                      incoming Shopify webhook deliveries
-                                      and their processing state.
-
-  Dead-letter item                    A webhook or background task that
-                                      exhausted automatic retries and
-                                      needs review.
-  -----------------------------------------------------------------------
-
-## 3.2 Source-of-truth boundaries
-
-There is no single database that is authoritative for every kind of
-data. Authority is divided deliberately:
-
-  -----------------------------------------------------------------------
-  Data                                Authoritative system
-  ----------------------------------- -----------------------------------
-  Shopify order ID, original order    Shopify
-  number, line items, quantities,     
-  product titles, original prices,    
-  currency and Shopify customer/order 
-  data                                
-
-  Payment/financial status and        Shopify
-  Shopify transactions/refunds        
-
-  Shopify fulfillment ID and          Shopify
-  fulfillment state                   
-
-  OrderFlow checklist progress        OrderFlow PostgreSQL database
-
-  OrderFlow preparation and           OrderFlow PostgreSQL database,
-  operational lifecycle               reconciled against Shopify
-                                      constraints
-
-  Staff actions, permissions and      OrderFlow PostgreSQL database
-  audit history                       
-
-  Refund applications and manual      OrderFlow PostgreSQL database
-  review notes                        
-
-  Derived operational reports         Read-only queries over OrderFlow
-                                      data and synchronized Shopify facts
-  -----------------------------------------------------------------------
-
-Shopify is authoritative for commerce and payment facts. OrderFlow is
-authoritative for its own checklist, user actions, refund-application
-records and operational audit trail. OrderFlow must never silently
-overwrite Shopify financial facts.
-
-## 3.3 Synchronization rules
-
--   Shopify webhook deliveries are notifications that data may have
-    changed; the backend must fetch the current order from Shopify
-    before applying a critical update.
--   Webhook events can arrive more than once or out of order. Processing
-    must be idempotent and use Shopify timestamps/version information to
-    avoid replacing newer data with older data.
--   Shopify-derived fields and OrderFlow-owned lifecycle fields must be
-    stored separately.
--   A Shopify synchronization must not increment `order_version` used
-    for checklist/lifecycle optimistic concurrency.
--   The application must display the last successful Shopify
-    synchronization time.
--   Shopify data is considered stale after 15 minutes without a
-    successful synchronization.
--   If Shopify is unavailable, the app may display cached order details
-    and continue permitted local checklist and delivery-recording work.
-    Dispatch is blocked until Shopify is reachable and the order is
-    revalidated.
--   A stale or unavailable Shopify state must be visibly labelled; the
-    UI must not imply that it is current.
-
-------------------------------------------------------------------------
-
-# 4. Product scope and platforms
-
-## 4.1 Web application
-
-The responsive web app is the full administrative interface. It
-includes:
-
--   Sign-in and current-user profile.
--   Order list, filters and search.
--   Order detail and product lines.
--   Packing checklist.
--   Dispatch confirmation and pending-confirmation handling.
--   Delivery confirmation.
--   Order timeline.
--   Refund-application list and manual review.
--   Dispatch-performance report.
--   User/role administration for Owner/Admin.
--   Integration and system health indicators for authorized
-    administrators.
-
-## 4.2 Native mobile application
-
-The React Native/Expo app uses the same backend and permissions. It
-supports the core staff workflow:
-
--   Sign-in.
--   Eligible order list and search.
--   Order detail and customer delivery address.
--   Packing checklist.
--   Dispatch confirmation and result reconciliation.
--   Delivery confirmation.
--   Order timeline.
--   Basic order/refund-application status visibility.
-
-The detailed report builder, role administration and integration
-settings are web-first. The mobile app may show a compact report summary
-but is not required to reproduce every web reporting control in the
-first demo.
-
-## 4.3 Shared behavior
-
-The web and native applications must use the same API contracts, status
-labels, permission checks, validation rules and lifecycle transitions.
-No business rule may exist only in one client.
-
-------------------------------------------------------------------------
-
-# 5. Functional requirements
-
-## FR-01 --- Shopify order ingestion
-
-The backend shall receive configured Shopify order/payment/fulfillment
-webhook topics, validate the delivery, persist it in the webhook inbox
-and process it asynchronously.
-
-**Acceptance criteria**
-
--   HTTPS webhook signatures are verified against the raw request body
-    before trusting the payload.
--   A missing or invalid signature is rejected and not processed.
--   Each delivery is deduplicated using `X-Shopify-Webhook-Id`.
--   The event ID may be stored for correlation but is not substituted
-    for the delivery ID.
--   The endpoint acknowledges a valid, durably recorded delivery
-    quickly; long-running Shopify API calls occur in a worker.
--   A duplicate delivery does not create duplicate orders, checklist
-    records, timeline events or dispatch actions.
--   A failed processing attempt remains retryable and is not marked
-    processed.
--   A periodic reconciliation job checks for missed or stale Shopify
-    updates.
-
-Shopify's current webhook documentation specifies HMAC verification,
-delivery IDs, fast acknowledgement, duplicate-safe processing and retry
-behavior. The implementation must follow the documentation for the
-pinned Shopify API version. See the official references in Section 17.
-
-## FR-02 --- Payment eligibility
-
-An order may enter the active OrderFlow preparation queue only when
-Shopify's current data confirms that it is paid and the order passes all
-integrity checks.
-
-Eligibility rules:
-
-1.  Shopify financial status must be `PAID`.
-2.  The order must not be cancelled.
-3.  The order must not already be fulfilled in a way that makes a new
-    fulfillment inappropriate.
-4.  The order currency must be PKR for this project baseline.
-5.  The successful payment/transaction amount must match the payable
-    order amount using exact decimal arithmetic.
-6.  A test transaction must not qualify as a real paid order.
-7.  A voided, fully refunded or partially refunded order is not eligible
-    for new dispatch until an authorized administrator has reviewed and
-    resolved the discrepancy.
-8.  Cash-on-delivery orders are out of scope.
-9.  Customer screenshots or manually supplied claims are not payment
-    evidence.
-10. Transient Shopify/API failures do not mark an order permanently
-    failed; they remain pending synchronization/retry.
-
-**Acceptance criteria**
-
--   Only eligible paid orders appear in the default active queue.
--   Ineligible orders display a clear reason to authorized users where
-    practical.
--   A payment or amount mismatch blocks preparation/dispatch.
--   The backend rechecks Shopify financial and fulfillment state
-    immediately before dispatch.
--   A transient network/API error does not become a permanent
-    `amount_mismatch` or failed-payment state.
-
-## FR-03 --- Order list
-
-The order list shall show eligible orders by default.
-
-Each row/card displays:
-
--   Shopify order number.
--   Customer name.
--   Payment status.
--   OrderFlow lifecycle status.
--   Product count or concise item summary.
--   Last synchronization time or stale indicator.
--   Dispatch/delivery timestamp when applicable.
-
-Filters:
-
--   **Pending:** Paid and eligible orders not yet dispatched, including
-    preparing orders.
--   **Dispatched:** Orders whose dispatch has been confirmed in Shopify
-    and OrderFlow.
--   **Completed:** Delivered orders and pre-dispatch cancelled orders.
-    Refund applications are shown as a separate flag/filter and do not
-    change the completed lifecycle status.
--   **Needs attention:** Orders with a payment mismatch, stale
-    synchronization, pending dispatch confirmation, Shopify conflict or
-    dead-letter issue.
-
-Search is limited to order number, customer name and tracking number.
-Search must be permission-filtered and paginated.
-
-## FR-04 --- Order details
-
-The order detail screen shall show:
-
--   Shopify order number and internal OrderFlow ID.
--   Customer name and available contact details required for order
-    handling.
--   Stored delivery address.
--   Product title, variant/SKU when available, quantity and
-    Shopify-sourced item details.
--   Currency and order totals as read-only Shopify data.
--   Shopify payment/financial status.
--   Shopify fulfillment status and tracking details when available.
--   OrderFlow lifecycle status.
--   Checklist progress.
--   Refund-application indicator.
--   Last successful Shopify sync time and stale warning.
--   Timeline.
-
-OrderFlow may update the stored address from Shopify synchronization.
-Staff may correct the delivery address only before dispatch, if
-authorized. Such a correction must be stored as an operational override
-with actor, timestamp and reason; it must not change Shopify's original
-financial or product data. The app must clearly distinguish the
-operational delivery address from the original Shopify address.
-
-## FR-05 --- Five-step packing checklist
-
-The checklist is approved as follows:
-
-1.  Confirm the order and customer details.
-2.  Verify every product and quantity.
-3.  Inspect product condition.
-4.  Pack the products securely.
-5.  Confirm the package is ready for dispatch.
-
-Rules:
-
--   Checklist steps are completed in order.
--   A later step cannot be completed while an earlier step remains
-    incomplete.
--   A user may undo only the most recently completed step, and only
-    before dispatch.
--   Every completion and undo is recorded in the timeline/audit history
-    with user and timestamp.
--   The order enters `PREPARING` when the first checklist step is
-    completed.
--   All five steps must be complete before dispatch can be requested.
--   Once dispatch is confirmed, checklist changes are locked.
--   Checklist progress is stored in the backend and is shared by web and
-    native clients.
-
-**Acceptance criteria**
-
--   Steps appear in the approved order and have clear labels.
--   Completing step 2 while step 1 is incomplete is rejected by the
-    backend.
--   Only the latest completed step can be undone before dispatch.
--   A dispatched order's checklist is read-only.
-
-## FR-06 --- Safe dispatch
-
-Dispatch is a high-risk action. It must require explicit confirmation
-and server-side validation.
-
-Before dispatch, the backend must recheck:
-
--   The user has `dispatch.create`.
--   The order is paid and eligible.
--   The order is not cancelled.
--   No successful Shopify fulfillment already exists for the relevant
-    items.
--   All checklist steps are complete.
--   The tracking number is valid.
--   The order currency and payment amount remain acceptable.
--   The Shopify synchronization is current enough for a live check.
-
-Tracking number validation:
-
--   Trim leading/trailing whitespace.
--   Required.
--   6--30 characters.
--   Only letters, digits and hyphens.
--   Reject spaces and other punctuation.
-
-Dispatch workflow:
-
-1.  Client sends a unique `request_id` and the current `order_version`.
-2.  Backend validates the request and, in a short database transaction,
-    creates a unique active dispatch attempt in `PENDING`.
-3.  The transaction ends before the network request to Shopify. No
-    database lock is held while waiting for Shopify.
-4.  Backend calls the Shopify adapter with a 10-second request timeout.
-5.  If Shopify confirms fulfillment creation, backend stores the Shopify
-    fulfillment ID, tracking information, dispatch timestamp and
-    `SUCCEEDED` outcome, then changes OrderFlow lifecycle to
-    `DISPATCHED`.
-6.  If Shopify definitively rejects the request, the attempt becomes
-    `FAILED` with a safe, user-readable reason.
-7.  If the response times out or the outcome is unknown, the attempt
-    becomes `PENDING_CONFIRMATION`. The system queries Shopify to
-    determine whether fulfillment was created before considering another
-    create request.
-8.  The system never blindly repeats a fulfillment-creation request
-    after an uncertain response.
-9.  Only one active dispatch attempt may exist for an order at a time.
-10. The UI shows a pending state until the backend establishes the
-    outcome. It must not show success merely because the user tapped
-    Confirm.
-
-Confirmation dialog:
-
-> Dispatch order #\[order number\]? This will create/confirm the Shopify
-> fulfillment and cannot be undone in OrderFlow. Verify the parcel and
-> tracking number before continuing.
-
-**Acceptance criteria**
-
--   Dispatch cannot occur offline or while Shopify is unavailable.
--   The backend rejects stale `order_version` values with HTTP 409 and
-    returns the current state.
--   Reusing a `request_id` with the same payload returns the original
-    stored result.
--   Reusing the same `request_id` with a different payload returns HTTP
-    409.
--   Duplicate taps do not create duplicate fulfillment.
--   An uncertain outcome triggers reconciliation, not blind retry.
--   Only confirmed Shopify fulfillment changes the lifecycle to
-    `DISPATCHED`.
--   No dispatch undo or reverse-dispatch control is provided.
-
-## FR-07 --- Shopify integration outage
-
-When OrderFlow's backend/database is running but Shopify is unavailable:
-
--   The app may show cached Shopify-derived order information.
--   The UI must show the last successful sync time and mark data stale
-    after 15 minutes.
--   Staff may continue checklist work against already synchronized
-    orders.
--   Authorized users may record a manual delivery confirmation for an
-    already dispatched order.
--   Staff may view timelines and submit refund applications.
--   Dispatch and any operation that requires a fresh Shopify
-    financial/fulfillment check are blocked.
--   When Shopify returns, the reconciliation worker refreshes the order
-    and identifies conflicts.
--   A conflict must not silently regress OrderFlow lifecycle.
-
-If the OrderFlow backend or database itself is unavailable,
-state-changing operations are unavailable. The app must not claim that
-unsaved local changes have been committed.
-
-## FR-08 --- Delivery confirmation
-
-Delivery is recorded manually by an Owner, Admin or user with
-`delivery.confirm`.
-
--   Delivery can only be recorded for an order already in `DISPATCHED`.
--   The user must explicitly confirm the action.
--   The server sets `delivered_at` and `delivered_by`.
--   The timestamp is set once and cannot be overwritten.
--   Delivery confirmation is permanent in the normal product workflow.
-    No user, including an Owner, can reverse or edit the delivered
-    lifecycle status.
--   If an error is later reported, an authorized user may add a separate
-    correction/exception note. The original delivery status and
-    timestamp remain unchanged.
--   Repeated delivery requests return the existing delivery result and
-    do not create a second transition.
--   Delivery notes are optional and limited to 200 characters. They must
-    not contain payment credentials or unnecessary sensitive personal
-    information.
-
-**Acceptance criteria**
-
--   A non-dispatched order cannot be marked delivered.
--   A delivered order cannot be moved back to dispatched.
--   Duplicate requests do not change `delivered_at`.
--   The timeline records actor, timestamp and source.
-
-## FR-09 --- Shopify cancellation or fulfillment conflict after dispatch
-
-OrderFlow does not provide a cancellation action after dispatch. The
-system cannot prevent a Shopify administrator or an external Shopify
-process from making a change directly in Shopify.
-
-If Shopify reports an unexpected cancellation or fulfillment change
-after OrderFlow has recorded dispatch:
-
--   OrderFlow retains its recorded dispatch/delivery history; it does
-    not silently regress the lifecycle to `CANCELLED`.
--   The order receives a `SHOPIFY_POST_DISPATCH_CONFLICT` flag.
--   The order appears in **Needs attention**.
--   Owner/Admin receives a visible warning and can record an
-    investigation outcome.
--   The original Shopify event, OrderFlow state and resolution note
-    remain in the timeline/audit trail.
--   No automatic refund or financial reversal is performed.
--   The team must not describe this as technically preventing Shopify
-    cancellation; it is an OrderFlow safety and conflict-handling rule.
-
-Pre-dispatch Shopify cancellation is different: it blocks
-preparation/dispatch, moves the OrderFlow order to `CANCELLED`, and
-removes it from the active queue while preserving history.
-
-## FR-10 --- Order timeline
-
-The system shall provide a chronological timeline for each order.
-
-Events include, where applicable:
-
--   Order first synchronized.
--   Payment eligibility established or rejected.
--   Shopify order updates that materially affect eligibility.
--   Preparation started.
--   Each checklist step completed or undone.
--   Dispatch requested.
--   Dispatch confirmed, failed or awaiting confirmation.
--   Tracking number added/updated.
--   Delivery recorded.
--   Refund application submitted, reviewed, approved or declined.
--   Address override recorded.
--   Shopify conflict detected and reviewed.
--   Administrative exception note added.
-
-Each event stores:
-
--   Event type.
--   Order ID.
--   Actor type and actor ID, or system/integration source.
--   UTC timestamp.
--   Safe, structured details that do not include secrets or unnecessary
-    customer PII.
--   Correlation/request ID where available.
-
-Timeline events are append-only. Corrections are new events, not edits
-to historical events.
-
-## FR-11 --- Manual refund applications
-
-Refund handling in this version is deliberately manual. OrderFlow
-records customer requests and helps staff review them; it does not issue
-money or execute Shopify refunds.
-
-### Refund application behavior
-
--   A refund application can be recorded for an order after the order
-    has been dispatched or delivered. The system may also record an
-    earlier inquiry, but it must be labelled `INQUIRY`, not an eligible
-    refund application.
--   A refund application records the customer/order, reason, requested
-    product line items and quantities, application date, submitting user
-    and optional supporting note.
--   Product details are copied into a request snapshot so the report
-    remains understandable if the Shopify product title later changes.
--   The application can be `SUBMITTED`, `UNDER_REVIEW`,
-    `APPROVED_MANUALLY`, `DECLINED` or `CLOSED`.
--   Only Owner/Admin can record the review decision.
--   The system generates a list of customers who applied for a refund,
-    with order number, product titles/variants, quantities, reason,
-    request date and review status.
--   A request is not proof that a refund has been granted.
--   The system must never automatically create a Shopify refund, send
-    money, change payment status or mark an order as `REFUNDED`.
-
-### Delivery-charge handling
-
-The business intends to account for delivery charges when reviewing a
-refund. For this project, any delivery-charge deduction or amount is
-entered and decided manually by an Owner/Admin. OrderFlow does not
-calculate the deduction, decide refund eligibility, or execute a
-payment. The record may store the manually entered delivery-charge
-amount and manually approved amount for reference, with currency and
-reviewer. These values are administrative records, not financial
-transactions.
-
-### Refund application acceptance criteria
-
--   A customer application can be recorded without changing the order
-    lifecycle.
--   Duplicate submission with the same request ID does not create
-    duplicate applications.
--   The applicant report lists each application and its requested
-    product details.
--   Only Owner/Admin can approve or decline.
--   Approval does not trigger a Shopify refund or payment.
--   The UI clearly labels the feature "Manual refund application
-    tracking --- no payment is issued by OrderFlow."
-
-## FR-12 --- Dispatch performance report
-
-The report measures the elapsed time from payment verification to
-confirmed dispatch.
-
-**Primary metric:**
-`dispatch_duration = dispatched_at - payment_verified_at`.
-
-Definitions:
-
--   `payment_verified_at` is the first qualifying successful Shopify
-    payment timestamp used by OrderFlow for eligibility.
--   `dispatched_at` is the timestamp at which Shopify fulfillment is
-    confirmed and OrderFlow records successful dispatch.
--   All stored timestamps are UTC.
--   User-selected report dates are interpreted in Pakistan Standard Time
-    (Asia/Karachi).
--   The start date is inclusive; the end date is inclusive by selecting
-    the half-open interval from local start-of-day through the start of
-    the following local day.
--   The report includes only orders with a confirmed dispatch and a
-    valid non-negative duration in the selected dispatch-date range.
--   Orders not dispatched in the selected range are not included in
-    average duration.
--   The report separately counts excluded/undispatched eligible orders
-    and lists exclusion reasons.
--   An empty result produces a count of zero and an average of "N/A",
-    not zero.
--   A negative duration is treated as a data-integrity exception and
-    excluded from the average.
--   Multiple Shopify payment transactions must not create duplicate
-    order rows; the qualifying payment timestamp is selected once
-    according to the eligibility rule.
-
-Report outputs:
-
--   Number of orders dispatched in range.
--   Average payment-verification-to-dispatch duration.
--   Median duration.
--   Fastest and slowest duration.
--   Counts by lifecycle/status where useful.
--   Excluded/undispatched count and reasons.
--   Order-level detail with order number, payment verification time,
-    dispatch time and duration.
-
-The report is read-only. It cannot update orders.
-
-## FR-13 --- Audit and history
-
-The backend shall record security-sensitive and business-critical
-actions, including:
-
--   Sign-in events and permission denials where appropriate.
--   Role/permission changes.
--   Webhook verification failures and processing failures.
--   Payment eligibility changes and mismatch reasons.
--   Checklist completion and undo.
--   Dispatch attempts and outcomes.
--   Delivery confirmation.
--   Refund application submission and manual review.
--   Address override.
--   Shopify conflict detection and resolution.
--   Administrative exception notes.
-
-Audit records are append-only. Application users cannot update or delete
-audit records through normal APIs. Audit details must use an allowlist
-and must not store access tokens, payment credentials, full webhook
-secrets or unnecessary customer personal data. Customer addresses belong
-in the protected order record, not the audit log.
-
-## FR-14 --- Health and operational status
-
-The system shall expose:
-
--   `GET /health` for application and database health.
--   A protected integration status view showing Shopify connection
-    state, last successful sync and pending/failed webhook counts.
--   A worker status indicator for webhook and reconciliation processing.
--   Clear UI warnings when data is stale, a dispatch is pending
-    confirmation, or a webhook is in the dead-letter queue.
-
-------------------------------------------------------------------------
-
-# 6. Lifecycle and state-transition rules
-
-## 6.1 OrderFlow lifecycle
-
-The primary lifecycle is:
-
-`PENDING_PAYMENT → PAID → PREPARING → DISPATCH_PENDING → DISPATCHED → DELIVERED`
-
-`CANCELLED` is terminal and is permitted only before dispatch.
-
-The `DISPATCH_PENDING` state is an operational safety state, not a
-Shopify financial or fulfillment status. It indicates that a dispatch
-attempt is in progress or its result is not yet known.
-
-## 6.2 Transition table
-
-  -----------------------------------------------------------------------------
-  Current state      Event                 Next state         Rule
-  ------------------ --------------------- ------------------ -----------------
-  PENDING_PAYMENT    Shopify confirms      PAID               All payment and
-                     eligible payment                         order checks pass
-
-  PENDING_PAYMENT    Shopify cancellation  CANCELLED          Preserve history
-
-  PAID               First checklist step  PREPARING          Backend validates
-                     completed                                eligibility
-
-  PREPARING          Valid dispatch        DISPATCH_PENDING   Checklist
-                     request accepted for                     complete; attempt
-                     processing                               created
-
-  DISPATCH_PENDING   Shopify fulfillment   DISPATCHED         Store fulfillment
-                     confirmed                                ID and timestamp
-
-  DISPATCH_PENDING   Definitive Shopify    PREPARING          Preserve failed
-                     rejection                                attempt; user may
-                                                              correct issue and
-                                                              retry
-
-  DISPATCH_PENDING   Unknown               DISPATCH_PENDING   Reconcile
-                     timeout/result                           Shopify; do not
-                                                              blindly retry
-
-  DISPATCHED         Authorized delivery   DELIVERED          Set once;
-                     confirmation                             permanent
-
-  PAID or PREPARING  Shopify cancellation  CANCELLED          Dispatch is
-                     confirmed before                         blocked
-                     dispatch                                 
-
-  DISPATCHED or      Shopify               Same lifecycle     Do not silently
-  DELIVERED          cancellation/update   state + conflict   regress
-                     conflict              flag               
-
-  DELIVERED          Refund application    DELIVERED + refund Refund request is
-                     submitted             application state  separate from
-                                                              lifecycle
-  -----------------------------------------------------------------------------
-
-No transition from `DISPATCHED` or `DELIVERED` to `CANCELLED` is allowed
-in OrderFlow. No transition from `DELIVERED` back to `DISPATCHED` is
-allowed.
-
-## 6.3 Versioning and concurrency
-
--   `order_version` starts at 1.
--   It increments whenever OrderFlow-owned lifecycle or checklist state
-    changes.
--   Shopify-only mirror refreshes do not increment it.
--   State-changing API requests include the version the client last
-    read.
--   A mismatch returns HTTP 409 with the current version and a safe
-    refresh message.
--   A request ID is unique per action. Same ID and same payload returns
-    the stored result; same ID and different payload returns HTTP 409.
-
-------------------------------------------------------------------------
-
-# 7. Data requirements
-
-The following is the logical data model. Exact physical column names may
-be refined in the schema, but the relationships and constraints are
-mandatory.
-
-## 7.1 Core entities
-
-### users
-
--   `id`
--   `oidc_subject` (unique)
--   `email`
--   `display_name`
--   `is_active`
--   `created_at`
--   `updated_at`
-
-### roles and permissions
-
--   `roles`
--   `permissions`
--   `user_roles`
--   `role_permissions`
-
-A user may have multiple roles, but effective permissions must be
-deterministic and evaluated server-side.
-
-### orders
-
-Contains OrderFlow identity, Shopify identity and operational lifecycle.
-
-Important fields:
-
--   `id`
--   `shopify_order_id` (unique)
--   `shopify_order_number`
--   `customer_name`
--   `customer_email` where needed
--   `shipping_address` (protected operational data)
--   `currency`
--   `subtotal_amount`, `shipping_amount`, `total_amount` as exact
-    decimal values
--   `shopify_financial_status`
--   `shopify_fulfillment_status`
--   `shopify_updated_at`
--   `last_synced_at`
--   `lifecycle_status`
--   `order_version`
--   `payment_verified_at`
--   `dispatched_at`
--   `delivered_at`
--   `delivered_by`
--   `shopify_conflict_flag`
--   `created_at`, `updated_at`
-
-Shopify-derived fields must be clearly separated from OrderFlow-owned
-fields in code and schema documentation.
-
-### order_items
-
--   `id`
--   `order_id`
--   `shopify_line_item_id`
--   `product_id` or Shopify product reference when available
--   `variant_id` or Shopify variant reference when available
--   `product_title`
--   `variant_title`
--   `sku`
--   `quantity`
--   `unit_price`
--   `line_total`
-
-Product titles and item details are Shopify-sourced snapshots. Prices
-use exact decimal arithmetic.
-
-### checklist_steps
-
--   `id`
--   `order_id`
--   `step_number` (1--5)
--   `step_key`
--   `label`
--   `is_completed`
--   `completed_at`
--   `completed_by`
--   `updated_at`
-
-Unique constraint: `(order_id, step_number)`.
-
-### dispatches
-
--   `id`
--   `order_id`
--   `request_id` (unique for the action)
--   `status` (`PENDING`, `PENDING_CONFIRMATION`, `SUCCEEDED`, `FAILED`)
--   `tracking_number`
--   `shopify_fulfillment_id` (unique when present)
--   `attempt_count`
--   `last_error_code`
--   `last_error_message` (sanitized)
--   `requested_by`
--   `requested_at`
--   `confirmed_at`
--   `delivery_note` (optional, max 200 characters)
-
-Enforce one active dispatch attempt per order.
-
-### webhook_inbox
-
--   `id`
--   `shopify_webhook_id` (unique)
--   `shopify_event_id` (nullable correlation value)
--   `topic`
--   `shop_domain`
--   `api_version`
--   `payload` (protected, access restricted)
--   `status` (`RECEIVED`, `PROCESSING`, `PROCESSED`, `FAILED`,
-    `DEAD_LETTER`)
--   `attempt_count`
--   `received_at`
--   `processed_at`
--   `next_retry_at`
--   `last_error_code`
--   `last_error_message`
-
-Only successfully processed deliveries are treated as completed. A
-failed or transiently interrupted delivery remains eligible for retry.
-
-### refund_applications
-
--   `id`
--   `order_id`
--   `application_number`
--   `status`
--   `reason_code`
--   `customer_reason`
--   `requested_at`
--   `submitted_by`
--   `reviewed_by`
--   `reviewed_at`
--   `review_note`
--   `manual_delivery_charge_amount` (nullable)
--   `manual_approved_amount` (nullable)
--   `currency`
--   `created_at`, `updated_at`
-
-### refund_application_items
-
--   `id`
--   `refund_application_id`
--   `order_item_id` (nullable reference)
--   `product_title_snapshot`
--   `variant_title_snapshot`
--   `sku_snapshot`
--   `requested_quantity`
--   `reason_note`
-
-### audit_events
-
--   `id`
--   `order_id` (nullable)
--   `actor_type`
--   `actor_id` (nullable for system events)
--   `event_type`
--   `details` (allowlisted structured JSON; no secrets or unnecessary
-    PII)
--   `request_id` (nullable)
--   `created_at`
-
-Audit events are insert-only.
-
-## 7.2 Data types and integrity
-
--   Use PostgreSQL.
--   Use Prisma for schema management and typed data access.
--   Money uses `NUMERIC(12,2)` (or a precision explicitly justified by
-    Shopify currency requirements), never floating-point arithmetic.
--   Store currency with every amount.
--   Store timestamps in UTC (`TIMESTAMPTZ`).
--   Use database constraints for unique Shopify IDs, webhook delivery
-    IDs, request IDs and checklist step numbers.
--   Use transactions for local state changes that must succeed together.
--   Do not hold a database transaction open while calling Shopify over
-    the network.
--   Foreign keys must protect order, user, checklist, dispatch, refund
-    and audit relationships.
--   Customer addresses and webhook payloads are protected operational
-    data and must not be written to general logs.
-
-------------------------------------------------------------------------
-
-# 8. Integration requirements
-
-## 8.1 Shopify adapter
-
-All Shopify interactions must go through a single adapter interface.
-Business logic must not depend directly on Shopify SDK response objects.
-
-Two implementations are required:
-
-1.  **MockShopifyAdapter:** deterministic fixture-based implementation
-    for local development, tests and demo. It simulates order retrieval,
-    payment state, fulfillment creation, timeouts, duplicate webhook
-    deliveries and Shopify outages.
-2.  **RealShopifyAdapter:** communicates with a configured Shopify
-    development store through the Shopify Admin GraphQL API.
-
-The same application services and API endpoints must work with either
-adapter. Select the adapter using configuration; do not fork business
-logic.
-
-## 8.2 Real Shopify integration
-
--   Use the Shopify Admin GraphQL API, not a newly written legacy REST
-    integration.
--   Pin a supported stable API version in configuration and update it
-    deliberately.
--   Use least-privilege access scopes.
--   Store the Shopify access token and app secret only in server-side
-    environment secrets.
--   Verify webhook HMAC from the raw request body using constant-time
-    comparison.
--   Use `X-Shopify-Webhook-Id` for delivery deduplication.
--   Acknowledge valid deliveries quickly after durable inbox insertion;
-    process asynchronously.
--   Use `X-Shopify-Triggered-At` and Shopify resource
-    `updatedAt`/`updated_at` to protect against out-of-order events.
--   Fetch the current order/fulfillment state from Shopify before
-    critical dispatch decisions.
--   Use the appropriate Shopify fulfillment-order and fulfillment
-    GraphQL operations. The real adapter must handle GraphQL
-    `userErrors` as failures even when the HTTP request itself succeeds.
--   Customer notification on fulfillment is controlled by configuration.
-    It is disabled in mock mode and must be explicitly enabled for a
-    real store.
--   The integration must respect Shopify scopes, store permissions, rate
-    limits and API-version behavior.
-
-## 8.3 Webhook processing and retries
-
--   Verify authenticity before persisting an event as trusted.
--   Persist the delivery and its processing state before acknowledging
-    success.
--   Use a worker to process events asynchronously.
--   Retry transient failures with bounded exponential backoff and
-    jitter.
--   Permanent validation failures are not retried indefinitely.
--   After the configured maximum of 8 application processing attempts,
-    move the event to `DEAD_LETTER` and expose it to Owner/Admin review.
--   The initial retry schedule is approximately 1 minute, 5 minutes, 15
-    minutes, 1 hour, then bounded retries up to the attempt limit. Exact
-    delay may be configured.
--   A dead-letter event can be manually requeued by Owner/Admin after
-    inspection.
--   A periodic reconciliation task runs every 5 minutes for recently
-    active orders and checks a rolling 48-hour window. It refreshes the
-    current Shopify order state rather than replaying stale payloads.
--   Shopify itself also retries failed webhook deliveries; OrderFlow
-    must remain idempotent even when both Shopify and its own worker
-    retry.
-
-## 8.4 Shopify outage behavior
-
--   Mock mode can simulate outage scenarios.
--   Real mode records integration errors and preserves webhook inbox
-    items for retry.
--   The order detail/list can use the last synchronized snapshot,
-    visibly marked stale after 15 minutes.
--   Checklist and manual delivery recording can continue locally while
-    OrderFlow itself is online.
--   Dispatch is blocked until Shopify can be queried and the fulfillment
-    outcome safely established.
-
-## 8.5 Authentication provider adapter
-
--   OIDC issuer metadata, client ID, redirect URIs and audience are
-    environment-configured.
--   Local demo uses a mock issuer.
--   Auth0 is the documented real-provider configuration.
--   Role mapping is based on stable OIDC subject and local role
-    assignments, not email-domain assumptions.
-
-------------------------------------------------------------------------
-
-# 9. API requirements
-
-The API is versioned under `/api/v1`. Exact OpenAPI schemas are
-maintained separately, but the following operations are required.
-
-  -----------------------------------------------------------------------------------------------------
-  Method and path                                      Purpose                 Permission
-  ---------------------------------------------------- ----------------------- ------------------------
-  `GET /api/v1/me`                                     Current user and        Authenticated
-                                                       effective permissions   
-
-  `GET /api/v1/orders`                                 Paginated order list,   `orders.read`
-                                                       filters and search      
-
-  `GET /api/v1/orders/:id`                             Order detail and sync   `orders.read`
-                                                       state                   
-
-  `GET /api/v1/orders/:id/timeline`                    Order timeline          `orders.read`
-
-  `PATCH /api/v1/orders/:id/address`                   Record permitted        `order.address.update`
-                                                       delivery-address        
-                                                       override before         
-                                                       dispatch                
-
-  `POST /api/v1/orders/:id/checklist/:step/complete`   Complete next checklist `checklist.update`
-                                                       step                    
-
-  `POST /api/v1/orders/:id/checklist/:step/undo`       Undo latest completed   `checklist.update`
-                                                       step before dispatch    
-
-  `POST /api/v1/orders/:id/dispatch`                   Start safe dispatch     `dispatch.create`
-                                                       attempt                 
-
-  `GET /api/v1/orders/:id/dispatch-status`             Reconcile pending       `orders.read`
-                                                       dispatch result         
-
-  `POST /api/v1/orders/:id/delivery`                   Record permanent        `delivery.confirm`
-                                                       delivery confirmation   
-
-  `POST /api/v1/orders/:id/refund-applications`        Submit manual refund    `refund.apply`
-                                                       application             
-
-  `GET /api/v1/refund-applications`                    List applications and   `refund.read`
-                                                       filters                 
-
-  `POST /api/v1/refund-applications/:id/review`        Approve/decline and     `refund.review`
-                                                       record manual           
-                                                       amounts/notes           
-
-  `GET /api/v1/reports/dispatch-performance`           Read dispatch           `report.view`
-                                                       performance metrics     
-
-  `GET /api/v1/reports/refund-applicants`              Applicants and          `report.view`
-                                                       requested product       
-                                                       details                 
-
-  `POST /api/v1/webhooks/shopify`                      Receive Shopify webhook HMAC authenticated
-
-  `GET /health`                                        Health check            Public, minimal output
-
-  `GET /api/v1/admin/integrations/shopify`             Shopify connection and  `system.manage`
-                                                       queue health            
-  -----------------------------------------------------------------------------------------------------
-
-## 9.1 Common API rules
-
--   Validate all inputs at the API boundary.
--   Use consistent JSON error responses with a machine-readable code,
-    human-readable message and correlation ID.
--   Never expose stack traces, secrets, SQL errors or raw Shopify
-    credentials to clients.
--   Use pagination for order, timeline and report lists.
--   State-changing requests require authentication, permission checks,
-    validation and idempotency where applicable.
--   Use `order_version` for checklist, address and lifecycle
-    concurrency.
--   Return HTTP 401 for unauthenticated requests, 403 for insufficient
-    permission, 404 for inaccessible/nonexistent resources, 409 for
-    stale versions or conflicting idempotency keys, 422 for
-    validation/business-rule failures, 429 for rate limits and 5xx for
-    unexpected service failures.
--   A Shopify timeout must return a pending/unknown outcome, not a false
-    success or false failure.
-
-------------------------------------------------------------------------
-
-# 10. Non-functional requirements
-
-## NFR-01 --- Usability
-
--   Core order actions must be usable on common mobile screen sizes.
--   Order number, payment status and lifecycle status must be visible
-    without opening the detail page.
--   The order detail view must be reachable in one interaction from the
-    list.
--   Destructive/irreversible actions require explicit confirmation.
--   Stale data, pending dispatch and integration outages must be
-    visually distinct.
-
-## NFR-02 --- Performance
-
-With 100 seeded active orders:
-
--   Order list API p95 response time target: under 1 second in the local
-    Docker environment.
--   Initial order list UI target: under 3 seconds on a representative
-    mobile device/network.
--   Record test hardware, browser/device, data volume, network
-    conditions and measured results.
--   Pagination must prevent loading an unbounded order list.
--   These are demo acceptance targets, not a production SLA.
-
-## NFR-03 --- Reliability
-
--   Webhook processing is durable and idempotent.
--   A worker restart must not lose an acknowledged webhook.
--   Failed work is retried within bounded limits and then surfaced for
-    review.
--   Uncertain dispatch results are reconciled against Shopify.
--   The system never claims a state change succeeded before the backend
-    confirms it.
-
-## NFR-04 --- Security
-
--   HTTPS is required for real Shopify webhook delivery and real
-    deployment.
--   Verify Shopify webhook HMAC signatures using raw request bytes and
-    constant-time comparison.
--   Enforce RBAC in backend services.
--   Use secure OIDC flows and secure token/session storage.
--   Keep secrets out of source control, client bundles, audit logs and
-    error messages.
--   Validate and normalize user inputs.
--   Apply request size limits, rate limits and safe CORS configuration.
--   Protect customer address and contact data; do not expose it in broad
-    reports.
--   Use least-privilege Shopify scopes and database credentials.
--   Audit privileged operations and permission denials.
--   Security tests must include unauthenticated access, role escalation
-    attempts, invalid webhook signatures, replay/duplicate delivery and
-    sensitive-data leakage checks.
-
-## NFR-05 --- Data integrity
-
--   Use exact decimal types for money.
--   Use UTC timestamps.
--   Use database uniqueness and foreign-key constraints.
--   Use optimistic concurrency for order lifecycle/checklist updates.
--   Preserve append-only audit history.
--   Shopify synchronization cannot overwrite OrderFlow-owned lifecycle
-    state.
--   A delivered timestamp is set once.
-
-## NFR-06 --- Maintainability
-
--   TypeScript strict mode.
--   Clear separation of UI, API, domain services, persistence and
-    integration adapters.
--   Shared API schemas/types where practical between web and native
-    apps.
--   Prisma migrations are committed and reproducible.
--   OpenAPI documentation is maintained with the API.
--   Business logic is testable without a live Shopify store.
-
-## NFR-07 --- Accessibility
-
--   Controls have readable labels and keyboard focus states.
--   Status must not be conveyed by color alone.
--   Confirmation dialogs and error messages must be understandable.
--   Touch targets must be suitable for mobile use.
-
-## NFR-08 --- Demo availability
-
--   The complete demo must run locally through Docker Compose.
--   The mock Shopify adapter and mock OIDC issuer must work without
-    external credentials.
--   A real Shopify dev-store mode is optional for the live demo and
-    requires credentials and scopes.
--   No production uptime or high-availability guarantee is made.
-
-------------------------------------------------------------------------
-
-# 11. Reports and dashboard definitions
-
-## 11.1 Dispatch performance
-
-The principal performance metric is payment verification to confirmed
-dispatch.
-
-For each included order:
-
-`duration_seconds = dispatched_at - payment_verified_at`
-
-Summary metrics:
-
--   Total successfully dispatched orders.
--   Average duration.
--   Median duration.
--   Minimum and maximum duration.
--   Number of eligible orders not dispatched in the selected period.
--   Number excluded for missing or invalid timestamps.
--   Order-level detail.
-
-The query must begin from the orders dataset and use LEFT JOINs or
-equivalent so orders without a dispatch row are not silently lost from
-exclusion counts. Only confirmed successful dispatch attempts contribute
-to the duration average.
-
-## 11.2 Refund applicants report
-
-The report lists people/orders that submitted refund applications. It
-includes:
-
--   Application number and date.
--   Order number.
--   Customer name and safe contact reference.
--   Product title, variant, SKU and requested quantity.
--   Customer-stated reason.
--   Application status.
--   Reviewer and review date.
--   Manually entered delivery-charge amount and approved amount, if
-    recorded.
-
-It must not label a submitted application as a completed refund. No
-money is moved by this report.
-
-## 11.3 Analytics isolation
-
-Reporting runs through a separate analytics process/service boundary. It
-uses a read-only database role and an internal service secret. It cannot
-update order, dispatch, refund or audit records.
-
-------------------------------------------------------------------------
-
-# 12. Error handling and recovery rules
-
-  -----------------------------------------------------------------------
-  Scenario                            Required behavior
-  ----------------------------------- -----------------------------------
-  Invalid Shopify HMAC                Reject; do not process; record a
-                                      sanitized security event
-
-  Duplicate webhook delivery          Return success after confirming the
-                                      existing durable inbox record; do
-                                      not repeat business effects
-
-  Webhook worker transient failure    Retry with bounded exponential
-                                      backoff
-
-  Webhook worker reaches retry limit  Move to dead-letter queue; alert
-                                      Owner/Admin
-
-  Out-of-order Shopify update         Compare Shopify update/trigger
-                                      timestamps; do not overwrite newer
-                                      mirrored data
-
-  Shopify unavailable                 Show cached data with stale label;
-                                      allow checklist and delivery
-                                      recording; block dispatch
-
-  Dispatch request timeout            Set pending confirmation; query
-                                      Shopify fulfillment state before
-                                      retry
-
-  Shopify says fulfillment already    Reconcile and attach the existing
-  exists                              fulfillment if it matches the
-                                      order; do not create another
-
-  Dispatch definitively rejected      Keep order in preparing; show
-                                      actionable safe error
-
-  Duplicate dispatch request ID, same Return stored result
-  payload                             
-
-  Duplicate dispatch request ID,      HTTP 409
-  different payload                   
-
-  Stale `order_version`               HTTP 409 and return current
-                                      version/state
-
-  Invalid tracking number             HTTP 422 with validation message
-
-  Unauthorized action                 HTTP 403 and audit the denied
-                                      privileged attempt where
-                                      appropriate
-
-  Delivery submitted twice            Return existing delivery result; do
-                                      not change timestamp
-
-  Delivery correction requested       Preserve delivered state; add
-                                      separate exception note
-
-  Shopify cancellation after dispatch Preserve OrderFlow lifecycle; set
-                                      conflict flag and require review
-
-  Refund application submitted twice  Deduplicate by request ID; return
-                                      existing application
-
-  Refund decision entered             Record manual decision only; do not
-                                      call Shopify refund mutation
-
-  Database unavailable                Fail state-changing requests; do
-                                      not claim changes were saved
-  -----------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-# 13. Project implementation slices
-
-The project uses vertical slices: each slice delivers a working
-end-to-end capability across UI, API/domain logic, persistence and
-tests. S0--S6 are the initial plan; the team may add a slice if a
-cohesive requirement cannot be safely included in an existing slice.
-
-  --------------------------------------------------------------------------------
-  Slice                   Scope                   Deliverable and exit criteria
-  ----------------------- ----------------------- --------------------------------
-  **S0 --- Foundation**   Monorepo, Docker        Both clients start, API health
-                          Compose, PostgreSQL,    works, demo user signs in,
-                          Prisma migrations,      database migrations and seed run
-                          Express API, React web  
-                          shell, Expo native      
-                          shell, OIDC mock        
-                          issuer, RBAC            
-                          foundation, CI/test     
-                          setup                   
-
-  **S1 --- Shopify        Shopify adapter         Signed fixture webhook
-  ingestion and eligible  interface, mock         creates/updates one eligible
-  order list**            adapter, real adapter   order once;
-                          foundation, webhook     invalid/duplicate/out-of-order
-                          inbox, HMAC             events are handled; list
-                          verification, async     displays eligible orders
-                          worker, reconciliation, 
-                          payment eligibility,    
-                          order mirror, order     
-                          list                    
-
-  **S2 --- Order details  Order detail,           Staff can open an order,
-  and packing checklist** customer/address and    complete/undo permitted
-                          product data, five      checklist steps and see history
-                          checklist steps,        
-                          sequential              
-                          completion/undo, order  
-                          timeline foundation     
-
-  **S3 --- Safe           Tracking validation,    Dispatch succeeds once in mock
-  dispatch**              confirmation dialog,    mode; timeout does not duplicate
-                          idempotent dispatch     fulfillment;
-                          request, active attempt unauthorized/stale/ineligible
-                          lock, Shopify           requests fail safely
-                          fulfillment call,       
-                          timeout reconciliation, 
-                          notification            
-                          configuration           
-
-  **S4 --- Delivery and   Permanent manual        Authorized user records delivery
-  Shopify conflict        delivery confirmation,  once; delivered status cannot be
-  handling**              delivery note, set-once reversed; Shopify conflict is
-                          timestamp,              visible and auditable
-                          post-dispatch Shopify   
-                          conflict flag and       
-                          review note             
-
-  **S5 --- Reports and    Manual refund           Applicants list includes product
-  refund applications**   application, product    details; no refund is
-                          snapshots, manual       automatically issued; report
-                          review, refund          metrics match seeded fixtures
-                          applicants report,      
-                          dispatch performance    
-                          report, read-only       
-                          analytics boundary      
-
-  **S6 --- Hardening and  Security tests,         Quality gates pass; 100-order
-  demo readiness**        performance tests,      performance evidence recorded;
-                          end-to-end smoke test,  Docker setup is reproducible;
-                          failure fixtures,       known limitations documented
-                          accessibility pass,     
-                          README, OpenAPI,        
-                          evidence logs, demo     
-                          script                  
-  --------------------------------------------------------------------------------
-
-### Slice workflow
-
-For every slice:
-
-1.  Ibrahim records scope and acceptance criteria.
-2.  Ihtesham checks architecture, data model and ADR alignment.
-3.  Ahmed prepares test cases and fixtures before implementation.
-4.  Taha implements backend functionality; Ibrahim implements client UI
-    in parallel against the agreed API contract.
-5.  Ihtesham reviews conformance and documentation.
-6.  Ahmed runs the quality gates and logs evidence.
-7.  Ibrahim records Accept, Revise or Reject and updates the master
-    plan.
-
-HITL (human review before proceeding) is mandatory for authentication,
-payment eligibility and dispatch behavior. Other low-risk work may use
-AFK implementation followed by review.
-
-------------------------------------------------------------------------
-
-# 14. Team ownership
-
-The existing four-person role map is retained.
-
-  ------------------------------------------------------------------------------
-  Team member             Primary ownership       Supporting responsibilities
-  ----------------------- ----------------------- ------------------------------
-  Ibrahim                 Planner/process lead    Master plan, plan history,
-                          and client UI           Git/branch rules, web/native
-                                                  screens, wireframes, workflow
-                                                  evidence log, contribution log
-                                                  and final report
-
-  Ihtesham                Architect and           PRD/ADRs/architecture/AGENTS
-                          documentation lead      alignment, schema and OpenAPI
-                                                  review, Docker/scaffold, mock
-                                                  adapter and webhook simulator
-                                                  foundation, analytics/report
-                                                  slice, final documentation
-                                                  review
-
-  Taha                    Backend builder         Webhook pipeline, payment
-                                                  eligibility, order mirror,
-                                                  checklist API, dispatch,
-                                                  delivery backend, Shopify
-                                                  adapter implementation and
-                                                  backend fixes
-
-  Ahmed                   QA and testing lead     Test design, fixtures, quality
-                                                  gates, security/performance
-                                                  checks, defect reports,
-                                                  regression tests, demo script
-                                                  and run verification
-  ------------------------------------------------------------------------------
-
-The role map describes ownership, not exclusive access. Team members may
-help across slices, but each deliverable must have one accountable
-owner.
-
-------------------------------------------------------------------------
-
-# 15. Testing and acceptance strategy
-
-## 15.1 Required test levels
-
--   Unit tests for domain rules, validators, eligibility and report
-    calculations.
--   Integration tests for PostgreSQL repositories, API endpoints,
-    webhook inbox and Shopify adapter behavior.
--   End-to-end smoke tests for the principal demo workflows.
--   Security tests for authentication, authorization, webhook
-    authenticity and sensitive-data handling.
--   Performance tests using 100 seeded active orders.
--   Manual acceptance checks for both web and native core workflows.
-
-## 15.2 Mandatory scenarios
-
-1.  Eligible paid Shopify order appears in the list.
-2.  Unpaid, cancelled, test, refunded, partially refunded,
-    wrong-currency or amount-mismatch order is blocked.
-3.  Invalid webhook signature is rejected.
-4.  Duplicate webhook delivery produces no duplicate business effect.
-5.  Failed webhook processing is retried and can reach dead-letter
-    review.
-6.  Older Shopify update cannot overwrite newer synchronized data.
-7.  Checklist cannot skip a step.
-8.  Only the latest checklist step can be undone before dispatch.
-9.  Dispatch is blocked when checklist is incomplete.
-10. Dispatch is blocked when Shopify is unavailable or order data is
-    stale.
-11. Duplicate dispatch request returns stored outcome.
-12. Same request ID with different payload returns 409.
-13. Stale order version returns 409.
-14. Shopify timeout enters pending confirmation and reconciles before
-    retry.
-15. Existing Shopify fulfillment prevents duplicate fulfillment
-    creation.
-16. Tracking number boundary tests cover 5, 6, 30 and 31 characters,
-    plus invalid punctuation.
-17. Staff without `dispatch.create` cannot dispatch.
-18. Delivery can be recorded only after dispatch.
-19. Delivery is set once and cannot be reversed.
-20. Post-dispatch Shopify cancellation creates a conflict flag without
-    lifecycle regression.
-21. Refund application records requested product details and does not
-    issue a refund.
-22. Only Owner/Admin can approve or decline a refund application.
-23. Dispatch report handles missing dispatch, missing timestamps, empty
-    ranges and negative durations.
-24. Analytics database role cannot write.
-25. Web and native apps display consistent lifecycle and checklist
-    state.
-
-## 15.3 Quality gates
-
--   **Gate 1 --- Scope and plan:** Slice scope, dependencies, acceptance
-    criteria and HITL/AFK choice recorded.
--   **Gate 2 --- Design and tests:** API/schema/ADR impact reviewed;
-    tests and fixtures prepared.
--   **Gate 3 --- Implementation:** Slice works end to end in mock mode;
-    validation and error handling are present.
--   **Gate 4 --- Verification:** Unit/integration/E2E tests pass;
-    security/performance checks appropriate to the slice pass; evidence
-    recorded.
--   **Gate 5 --- Acceptance:** Reviewer confirms requirements,
-    documentation, demo path and known limitations; slice marked Accept,
-    Revise or Reject.
-
-A slice is not complete merely because code exists. It is complete when
-the acceptance criteria and evidence are recorded.
-
-------------------------------------------------------------------------
-
-# 16. Technical baseline
-
-The following stack is the resolved project default:
-
-  -----------------------------------------------------------------------
-  Area                                Decision
-  ----------------------------------- -----------------------------------
-  Backend                             Node.js + TypeScript + Express
-
-  Web frontend                        React + TypeScript
-
-  Native frontend                     React Native + Expo + TypeScript
-
-  Database                            PostgreSQL
-
-  Data access/migrations              Prisma
-
-  API contract                        REST + OpenAPI
-
-  Authentication                      OIDC adapter; local mock issuer for
-                                      demo; Auth0 as documented real
-                                      provider
-
-  Shopify integration                 Shopify Admin GraphQL API behind
-                                      mock and real adapters
-
-  Background work                     Database-backed worker using
-                                      durable inbox/job state
-
-  Analytics                           Separate read-only service/process
-
-  Local environment                   Docker Compose
-
-  Testing                             Vitest/Jest-compatible TypeScript
-                                      test stack, Supertest/API
-                                      integration tests and Playwright
-                                      for web smoke tests; Expo tests for
-                                      native critical paths
-
-  Source control                      Git, one branch per vertical slice,
-                                      reviewed merge and plan history
-
-  Documentation                       English Markdown, OpenAPI and
-                                      Mermaid diagrams where useful
-  -----------------------------------------------------------------------
-
-The exact library versions are pinned in package manifests and lockfiles
-at implementation time. The team must not use unpinned floating
-dependencies in the final submission.
-
-------------------------------------------------------------------------
-
-# 17. External integration references
-
-The real Shopify adapter must be checked against the official Shopify
-documentation and the API version selected during implementation:
-
-1.  [Verify webhook
-    deliveries](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries)
-    --- HMAC validation, delivery IDs, fast acknowledgement,
-    asynchronous processing and retries.
-2.  [Shopify webhooks](https://shopify.dev/docs/api/webhooks/latest) ---
-    webhook headers, topics and API-version metadata.
-3.  [About webhooks](https://shopify.dev/docs/apps/build/webhooks) ---
-    event ordering limitations and reconciliation guidance.
-4.  [Fulfillment create --- GraphQL Admin
-    API](https://shopify.dev/docs/api/admin-graphql/latest/mutations/fulfillmentCreate)
-    --- creating a fulfillment, tracking information, customer
-    notification and required scopes.
-5.  [Order object --- GraphQL Admin
-    API](https://shopify.dev/docs/api/admin-graphql/latest/objects/Order)
-    --- order data, financial details, fulfillment and refund
-    relationships.
-
-Important integration implications:
-
--   Shopify webhook delivery order is not guaranteed; use timestamps and
-    current-state fetches.
--   Shopify recommends acknowledging quickly and doing long work
-    asynchronously.
--   Shopify can retry failed webhook deliveries; OrderFlow must remain
-    idempotent.
--   Shopify fulfillment creation requires the relevant access scope and
-    a user/store permission. The real adapter must handle GraphQL
-    `userErrors`, not just HTTP status.
--   The Shopify API version must be pinned and verified when
-    implementation begins; the `latest` documentation URL is a
-    reference, not a permanent version pin.
-
-------------------------------------------------------------------------
-
-# 18. Security, privacy and data retention
-
--   Store only customer information needed to prepare and deliver
-    orders.
--   Delivery addresses are stored because the team explicitly selected
-    database storage. Protect them through database access controls and
-    encrypted storage/backup infrastructure where available.
--   Do not include full addresses, phone numbers, email addresses,
-    tokens or webhook secrets in audit details or application logs.
--   Restrict order details and refund applicant lists to authorized
-    roles.
--   Retain order, dispatch, refund-application and audit history for the
-    duration of the project demo and its evaluation. A production
-    retention period must be set by the business before real deployment.
--   Provide a seed/reset command for demo data. It must be clearly
-    marked as destructive and must never run automatically against a
-    real Shopify-connected environment.
--   Do not use real customer data in the demo. Use synthetic fixtures
-    unless the business explicitly authorizes otherwise.
--   Backups and production restoration are not certified by this
-    student-project baseline.
-
-------------------------------------------------------------------------
-
-# 19. Deployment and delivery
-
-## 19.1 Local run
-
-The project must provide Docker Compose services for:
-
--   PostgreSQL.
--   Backend API.
--   Background worker.
--   Web frontend.
--   Analytics/report process.
--   Local mock OIDC issuer where required.
-
-The native Expo app runs through the documented local development
-workflow and connects to the same API.
-
-Required developer commands must be documented in README, including:
-
--   Install dependencies.
--   Start the local stack.
--   Run database migrations.
--   Seed demo data.
--   Run tests.
--   Run lint/type checks.
--   Start the native app.
--   Switch between mock and real Shopify adapter modes.
--   Reset demo data safely.
-
-## 19.2 Delivery format
-
-The deliverable is a Git repository with:
-
--   Source code.
--   `README.md`.
--   `PRD.md`.
--   `plan.md` and a dated plan change log.
--   `AGENTS.md`.
--   `docs/architecture.md`.
--   Accepted ADRs using consistent names such as `ADR-001-*.md`.
--   OpenAPI specification.
--   Database schema and migrations.
--   Workflow evidence log.
--   Test evidence table.
--   Contribution log.
--   Demo script and known-limitations section.
-
-A ZIP may be created as an additional convenience, but the Git
-repository and setup instructions are the requested primary delivery.
-
-## 19.3 Production limitations
-
-This is a demo-ready student project, not a production-certified
-order-management platform. Before production use, the business would
-need to complete at least:
-
--   Real identity-provider tenant and account provisioning.
--   Shopify app review, scopes and live store configuration.
--   Production hosting, secrets management, monitoring and alerting.
--   Backup and restore testing.
--   Privacy/retention policy and access review.
--   Security assessment and load testing at real expected scale.
--   Operational procedures for dead-letter review, manual refund
-    decisions and Shopify conflicts.
--   Verification of customer notification and fulfillment behavior in
-    the actual store.
-
-------------------------------------------------------------------------
-
-# 20. Risks and mitigations
-
-  -----------------------------------------------------------------------
-  Risk                    Impact                  Mitigation
-  ----------------------- ----------------------- -----------------------
-  Shopify webhook         Incorrect or repeated   Durable inbox, unique
-  duplicates or           order changes           delivery ID,
-  out-of-order delivery                           timestamps,
-                                                  current-state fetch and
-                                                  reconciliation
-
-  Shopify unavailable     Unknown fulfillment     Block new dispatch;
-  during dispatch         outcome                 pending-confirmation
-                                                  reconciliation; never
-                                                  blindly retry
-
-  Real Shopify            Real adapter cannot be  Mock adapter is the
-  credentials/scopes      exercised               reliable acceptance
-  unavailable                                     path; real adapter
-                                                  remains configurable
-
-  Web and native scope is Incomplete demo         Shared API/types;
-  too large for the                               web-first
-  schedule                                        admin/reporting; native
-                                                  core workflow; vertical
-                                                  slices
-
-  Refund expectations     Accidental financial    Manual application
-  misunderstood           promise                 tracking only; no
-                                                  refund mutation or
-                                                  automatic calculation
-
-  Customer address        Privacy risk            Role checks, protected
-  exposure                                        storage, no PII in
-                                                  audit/logs, synthetic
-                                                  demo data
-
-  Delivered status        Irreversible            Explicit confirmation;
-  entered incorrectly     operational record      permanent event;
-                                                  separate exception note
-                                                  instead of reversal
-
-  Team bottleneck in      Slice delays            Parallel
-  backend implementation                          UI/test/documentation
-                                                  work; stable OpenAPI
-                                                  contract; slice
-                                                  ownership
-
-  Teacher deadline        Submission risk         Target Thursday 26
-  differs from team                               November; teacher's
-  target                                          confirmed deadline
-                                                  governs submission
-  -----------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-# 21. Schedule and project governance
-
--   **Team target:** Complete implementation, integration, tests and
-    documentation by Thursday, 26 November 2026.
--   **Instructor deadline:** Not independently confirmed in this PRD;
-    the teacher's official deadline takes precedence.
--   **Freeze:** Aim to stop feature work by Thursday evening and reserve
-    remaining time for verification, evidence, demo rehearsal and
-    submission packaging.
--   **Plan authority:** `plan.md` is the single master plan. Changes are
-    appended to a dated change log; do not maintain competing active
-    plans.
--   **Change control:** A change to an approved requirement must include
-    the reason, affected requirements/slices, impact, approver and date.
--   **Evidence:** Save meaningful AI prompts/outputs, test results,
-    acceptance decisions and individual contributions in the project
-    evidence folder.
-
-------------------------------------------------------------------------
-
-# 22. Assumptions and resolved defaults
-
-These defaults are deliberately selected so implementation can proceed
-without waiting for more clarification:
-
-1.  Shopify is the source of truth for commerce, payment and Shopify
-    fulfillment facts; OrderFlow is the source of truth for its own
-    operational workflow and audit data.
-2.  PKR is the supported project currency.
-3.  Cash-on-delivery orders are excluded.
-4.  A paid order with any partial/full refund or void is blocked from
-    new dispatch until reviewed.
-5.  Delivery-address corrections are permitted only before dispatch and
-    are stored as an OrderFlow override with audit history.
-6.  Customer shipping notifications are off in mock mode and require
-    explicit configuration in real mode.
-7.  A post-dispatch Shopify cancellation/update is a conflict to review,
-    not a reason to erase or regress OrderFlow dispatch history.
-8.  Delivery is manually confirmed by authorized staff; no courier API
-    integration is included.
-9.  Delivered is permanent. A correction is represented by an exception
-    note, not by changing the lifecycle status.
-10. Refund applications are manually recorded and reviewed. No refund is
-    calculated or paid by OrderFlow.
-11. Any delivery-charge deduction and any approved refund amount are
-    manually entered by Owner/Admin and are not calculated or executed
-    by the system.
-12. The five-step checklist in FR-05 is the approved packing checklist.
-13. The local mock OIDC issuer is sufficient for the demo; Auth0 is the
-    documented production option.
-14. Mock Shopify mode is the guaranteed demo path; the real Shopify
-    adapter is included behind the same interface but requires external
-    credentials and permissions.
-15. The web application carries full administration/reporting; the
-    native app covers the core staff order workflow.
-16. The initial S0--S6 slice plan may be extended if testing or
-    integration reveals a necessary cohesive slice.
-17. `plan.md` is the one master plan with a dated change log.
-18. The Thursday target is a team planning target, not a claim about the
-    instructor's official deadline.
-
-------------------------------------------------------------------------
-
-# 23. Traceability from Version 2.0 to Version 3.0
-
-  -----------------------------------------------------------------------
-  Version 2.0 requirement             Version 3.0 treatment
-  ----------------------------------- -----------------------------------
-  Mobile-first order handling         Retained and expanded to responsive
-                                      web plus native mobile
-
-  Central website database            Replaced with explicit Shopify
-  authoritative                       commerce authority and OrderFlow
-                                      operational authority
-
-  Trusted payment verification        Updated to Shopify
-                                      financial/transaction eligibility
-                                      checks; no bank-token or screenshot
-                                      verification
-
-  Payment mismatch guard              Retained and made explicit
-
-  Irreversible dispatch               Retained with durable attempt,
-                                      idempotency and Shopify
-                                      reconciliation
-
-  Delivery confirmation               Retained as manual, permanent and
-                                      set-once
-
-  Owner/Admin RBAC                    Expanded to Owner, Admin and
-                                      specifically authorized staff
-
-  Customer address/details            Stored in OrderFlow as requested,
-                                      protected and synchronized from
-                                      Shopify
-
-  Return/refund physical courier      Replaced by manual
-  workflow                            refund-application tracking; no
-                                      automated return/refund or courier
-                                      integration
-
-  Pending/Dispatched/Completed        Retained with explicit OrderFlow
-  filters                             lifecycle mapping and a separate
-                                      Needs attention view
-
-  Courier status webhook              Removed from demo scope; delivery
-                                      is manually confirmed
-
-  Manual payment verification         Removed; Shopify payment facts
-  fallback                            determine eligibility
-
-  No AI conversation bots             Retained as a non-goal
-
-  Performance target under 3 seconds  Retained as a UI target; API p95
-  for 100 orders                      target added
-
-  Cancellation/audit archival         Retained for pre-dispatch
-                                      cancellation; post-dispatch Shopify
-                                      changes become conflict flags
-
-  Admin override for Delivered        Replaced by authorized manual
-                                      delivery confirmation that is
-                                      permanent and cannot be reversed
-
-  Return/refund tracking              Replaced with a manual applicant
-                                      register and product-detail report
-  -----------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-# 24. Final acceptance checklist
-
-The PRD baseline is considered implemented for the demo when all
-applicable items below are evidenced:
-
--   [ ] Web and native apps connect to the same backend.
--   [ ] Docker Compose starts the backend, database, worker, web app and
-    analytics process.
--   [ ] Local OIDC demo sign-in works and backend RBAC is enforced.
--   [ ] Mock Shopify adapter works without external credentials.
--   [ ] Real Shopify adapter is present behind the same interface and
-    configuration is documented.
--   [ ] Webhook HMAC verification and duplicate handling work.
--   [ ] Webhook retries, dead-letter review and reconciliation work.
--   [ ] Only eligible paid PKR orders enter the active queue.
--   [ ] Order details show stored customer/address and Shopify product
-    details.
--   [ ] The five-step checklist is sequential and auditable.
--   [ ] Dispatch is confirmed, idempotent and safe under timeout.
--   [ ] Dispatch is blocked while Shopify is unavailable.
--   [ ] Delivery is manual, permanent and auditable.
--   [ ] Post-dispatch Shopify conflicts are flagged without lifecycle
-    regression.
--   [ ] Order timeline shows the required business events.
--   [ ] Refund applications and product-detail applicant report work
-    manually.
--   [ ] No automated refund or payment transfer can be triggered.
--   [ ] Dispatch performance report uses payment verification to
-    confirmed dispatch.
--   [ ] Analytics access is read-only.
--   [ ] Unit, integration, E2E smoke, security and performance evidence
-    is recorded.
--   [ ] README, architecture, ADRs, OpenAPI, plan and evidence documents
-    agree with this PRD.
--   [ ] Known demo/production limitations are disclosed.
-
-------------------------------------------------------------------------
-
-**End of PRD --- Version 3.0**
+# OrderFlow AI: Product Requirements Document
+
+**Version:** 4.3 (Standalone Web Edition) | **Date:** 26 November 2026
+**Supersedes:** PRD v4.2 and v4.1 (25 to 26 Nov 2026), v3.0 (Shopify and native-app edition) and the unreviewed "v4.0" draft
+**Client:** Hannan's decoration-piece business, Pakistan | **Currency:** PKR only
+**Source-of-truth order:** this PRD, then `docs/architecture.md`, then `api-spec/openapi.yaml`, then `AGENTS.md`
+
+---
+
+## 0. What changed (read first)
+
+### From v3.0 to v4.1
+
+| Removed | Replaced by |
+|---|---|
+| Shopify storefront, webhooks, GraphQL/REST, fulfilment calls, conflict flags, reconcile worker, `DISPATCH_PENDING` | OrderFlow's own storefront, own orders, one atomic internal dispatch |
+| Payment eligibility from Shopify data | Payment verification: signed `PaymentAdapter` event (mock in the demo) or manual confirmation by Owner/Admin |
+| Expo / React Native app (`apps/native`) | One responsive web app (`apps/web`) |
+| "No offline mode" (old non-goal) | Offline viewing and checklist work; dispatch blocked offline unless the Owner switches on an override |
+
+**Kept unchanged:** PostgreSQL roles `orderflow_owner`, `orderflow_app`, `orderflow_ro`; `NUMERIC(12,2)` PKR; UTC `TIMESTAMPTZ` with `Asia/Karachi` report days; set-once timestamps; append-only `audit_events` and `order_notes`; `order_version` locking; `request_id` idempotency; RBAC checked in the API; manual refund application tracking (no money moves); the read-only `apps/analytics` service; OIDC sign-in with a mock issuer.
+
+### From v4.1 to v4.2
+
+| Change | Detail |
+|---|---|
+| Customers sign in | OIDC with a `customer` role. No anonymous ordering. `/my-orders` shows only the customer's own orders (FR-01) |
+| Three staff profiles | `staff_picker_packer` (steps 1 to 2), `staff_inspector` (steps 3 to 5), `staff_full` (all five). Admin performs checklist steps only when `admin_can_perform_staff_tasks` is switched on (FR-05) |
+| Product management and photo upload | Admin/Owner create and edit products and upload photos from a phone; local `/uploads` volume (FR-01) |
+| Order confirmation email | `EmailAdapter` with a mock outbox you can inspect (FR-01) |
+| Wrong-address complaint flow | Customer request, Admin/Owner applies or declines, fourth "Needs attention" group (FR-01, FR-03, FR-04) |
+| Checklist screen | Numbered collapsible steps 1 to 5 (FR-05) |
+| Offline | Dispatch locked up front with a clear message; only Owner and Admin may queue an offline dispatch, and only when the Owner override is on (FR-07) |
+
+### From v4.2 to v4.3 (Gate 1 review, 26 Nov 2026)
+
+| Change | Detail |
+|---|---|
+| TA core requirements | TA Req #1 (search), #2 (checklist progress), #3 (dispatch performance report) written into FR-03, FR-05 and FR-12; mapping in 12.1 |
+| Phone search | Exact match on normalized digits, staff with `order.address.read`, online only, rate limited (FR-03) |
+| Queue rows | Show payment status, lifecycle status and checklist progress "N of 5" |
+| Stock availability | New FR-15: staff report a product out of stock; a timed hold blocks new orders; Owner/Admin approve or decline; one `availability` value replaces `is_available`; fifth Needs attention group `STOCK_ISSUE` |
+| Address requests | 4-hour submission window; order hidden from staff while a request is open; checklist blocked; Apply resets the checklist to step 1 and the order to `PAID`; cancel voids an open request (FR-04, FR-09) |
+| Checklist epoch | `orders.checklist_epoch` makes offline actions recorded before a reset fail safely (FR-05, FR-07) |
+| Price changes | Client sends `expected_total`; a mismatch returns `PRICE_CHANGED` (FR-01) |
+| Payment issues | `PAYMENT_ISSUE` also covers payments that arrive for a cancelled or already-paid order (FR-03) |
+| Report | Today or custom range, delivered count, defined population and explicit excluded count, daily, weekly and monthly views, sales and units (FR-12) |
+| Refunds | PRD model kept; optional "recorded as paid outside OrderFlow" entry added (FR-11) |
+| Permissions | Staff profiles may add exception notes and report stock; only the Owner switches Admin staff-mode |
+| Database | Timestamp CHECKs, read-only reporting views, analytics reached only through the API |
+| Packages | `multer` 2.x, `sharp`, `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister` approved |
+
+---
+
+## 1. Product overview
+
+### 1.1 Purpose
+Signed-in customers order from OrderFlow's own web store and can follow their orders. Payment is verified (by a signed payment event or by an Owner/Admin). Verified orders enter the staff queue, are packed through a five-step checklist by the right staff profile, dispatched exactly once with a tracking number, and marked delivered. A customer who gave a wrong address can report it, and an Owner/Admin applies the correction before dispatch. Refund applications are tracked by hand. Two reports measure speed and list refund applicants.
+
+### 1.2 Goals
+1. One trustworthy path from checkout to delivery with every step timestamped and audited.
+2. A demo that never depends on an external account: mock payment adapter and mock OIDC issuer.
+3. Minimal navigation: four primary items.
+4. Safe by construction: the database refuses invalid states even if the application has a bug.
+
+### 1.3 Non-goals (Phase 1)
+Live payment gateway (PayFast is Phase 2 behind the same `PaymentAdapter`), card data of any kind, Cash on Delivery, partial or split payments, automated refunds or any money movement, courier integration, inventory counts and stock reservation, discount codes, password handling inside OrderFlow (the OIDC provider owns credentials), customer self-cancellation, customer-side refund submission, customer editing of an order after it is placed, real email delivery and automatic email retry (Phase 2), cloud object storage, native mobile app, multi-store, editing prices or quantities after an order exists, dispatch undo, delivery undo, a `REFUNDED` status, chatbots and generative-AI features.
+
+---
+
+## 2. Users, roles and permissions
+
+### 2.1 User types
+- **Customer:** signs in through OIDC and holds only the `customer` role. May browse the catalogue without signing in (D-14); **must sign in to place an order or to see order history.** Sees only their own orders (`orders.customer_user_id = current_user.id`) and never another customer's. Has no access to the staff workspace.
+- **Staff** (three profiles, replacing the single generic `staff` role). All three can view paid orders, read the delivery address, search by phone (FR-03), add exception notes, report a product out of stock (FR-15), and submit and read refund applications. They differ in checklist steps:
+
+| Profile | Role key | Checklist steps they may complete or undo |
+|---|---|---|
+| Picker and packer | `staff_picker_packer` | Steps 1 and 2 |
+| Inspector | `staff_inspector` | Steps 3, 4 and 5 |
+| Full staff | `staff_full` | Steps 1 to 5 |
+
+  Step 4 (pack the products securely) belongs to the inspector and full staff, confirmed by the Owner (D-15).
+- **Admin:** focuses on payment verification, customer complaints (address requests), cancellations, refund review, user management and oversight. Admin does **not** perform checklist steps unless the Owner switches on `admin_can_perform_staff_tasks` (FR-05). Admin can dispatch and confirm delivery. Admin cannot grant or revoke the Owner role and cannot switch the offline-dispatch override or Admin staff-mode.
+- **Owner:** all permissions, including the offline-dispatch override, Admin staff-mode and the Owner role. The Owner can always perform checklist steps.
+- **Capability roles** add single abilities to staff: `cap_dispatch`, `cap_delivery`, `cap_report`, `cap_order_intake`.
+- **Seeded roles:** `owner`, `admin`, `staff_picker_packer`, `staff_inspector`, `staff_full`, `cap_dispatch`, `cap_delivery`, `cap_report`, `cap_order_intake`, `customer`. **Retired:** the generic `staff` role (demo users move to `staff_full`) and `cap_address_update` (address changes are now only applied from a customer request).
+- Effective permissions are the union of a user's roles. A customer account never holds a staff or admin role, and a staff, admin or owner account never holds `customer` (D-21).
+
+### 2.2 Permission keys
+Kept: `orders.read`, `order.address.read`, `order.address.update` (now only to apply a customer address request), `dispatch.create`, `delivery.confirm`, `refund.apply`, `refund.read`, `refund.review`, `order.exception.record`, `report.view`, `audit.read`, `users.manage`, `system.manage`.
+**Replaced:** `checklist.update` becomes `checklist.steps_1_2` and `checklist.steps_3_5`.
+**New (staff side):** `orders.create`, `payment.confirm` (also grants viewing unpaid orders), `order.cancel`, `products.manage`, `product.stock.report`, `product.stock.review`, `settings.owner` (Owner only).
+**New (customer side, held only by `customer`):** `customer.order.create`, `customer.order.read_own`, `customer.address_request.create`.
+
+| Role | Permissions |
+|---|---|
+| `owner` | Every staff-side key, including `settings.owner` and both checklist keys |
+| `admin` | Every staff-side key except `settings.owner`. The two checklist keys are effective only while the Owner has `admin_can_perform_staff_tasks` switched on (a service rule, not a role change) |
+| `staff_picker_packer` | `orders.read`, `order.address.read`, `checklist.steps_1_2`, `refund.apply`, `refund.read`, `order.exception.record`, `product.stock.report` |
+| `staff_inspector` | `orders.read`, `order.address.read`, `checklist.steps_3_5`, `refund.apply`, `refund.read`, `order.exception.record`, `product.stock.report` |
+| `staff_full` | `orders.read`, `order.address.read`, `checklist.steps_1_2`, `checklist.steps_3_5`, `refund.apply`, `refund.read`, `order.exception.record`, `product.stock.report` |
+| `cap_dispatch`, `cap_delivery`, `cap_report`, `cap_order_intake` | `dispatch.create`, `delivery.confirm`, `report.view`, `orders.create` |
+| `customer` | `customer.order.create`, `customer.order.read_own`, `customer.address_request.create` |
+
+### 2.3 Permission matrix
+
+| Action | Customer | Picker/Packer | Inspector | Staff full | Admin | Owner |
+|---|---|---|---|---|---|---|
+| Browse the catalogue (public) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Place an order | Yes (signed in) | No | No | No | Manual order | Manual order |
+| See own orders in `/my-orders` | Yes | n/a | n/a | n/a | n/a | n/a |
+| Request an address change (own pre-dispatch order) | Yes | No | No | No | No | No |
+| View paid orders (PAID and later) | No | Yes | Yes | Yes | Yes | Yes |
+| View unpaid orders (`PENDING_PAYMENT`) | No | No | No | No | Yes | Yes |
+| Confirm payment manually | No | No | No | No | Yes | Yes |
+| Checklist steps 1 to 2 | No | Yes | No | Yes | Only if staff-mode on | Yes |
+| Checklist steps 3 to 5 | No | No | Yes | Yes | Only if staff-mode on | Yes |
+| View delivery address (staff side) | No | Yes | Yes | Yes | Yes | Yes |
+| Search the queue by phone (online, exact match) | No | Yes | Yes | Yes | Yes | Yes |
+| See orders that have an open address request | Own order only | No | No | No | Yes | Yes |
+| Add exception notes | No | Yes | Yes | Yes | Yes | Yes |
+| Report a product out of stock | No | Yes | Yes | Yes | Yes | Yes |
+| Approve or decline a stock request; mark back in stock | No | No | No | No | Yes | Yes |
+| Apply or decline an address request | No | No | No | No | Yes | Yes |
+| Dispatch online | No | With `cap_dispatch` | With `cap_dispatch` | With `cap_dispatch` | Yes | Yes |
+| Dispatch offline | No | **Never** | **Never** | **Never** | Only if override on | Only if override on |
+| Mark delivered (online) | No | With `cap_delivery` | With `cap_delivery` | With `cap_delivery` | Yes | Yes |
+| Cancel before dispatch | No | No | No | No | Yes | Yes |
+| Submit a refund application | No | Yes | Yes | Yes | Yes | Yes |
+| Review refund applications | No | No | No | No | Yes | Yes |
+| View reports | No | With `cap_report` | With `cap_report` | With `cap_report` | Yes | Yes |
+| View audit history | No | Order timeline only | Order timeline only | Order timeline only | Yes | Yes |
+| Create or edit products, upload photos | No | No | No | No | Yes | Yes |
+| View the email outbox | No | No | No | No | Yes | Yes |
+| Manage users and roles | No | No | No | No | Yes (not Owner role) | Yes |
+| Switch `admin_can_perform_staff_tasks` | No | No | No | No | **No** | **Yes (only)** |
+| **Switch the offline-dispatch override** | No | No | No | No | **No** | **Yes (only)** |
+
+Permissions are enforced by the API on every protected request. Hiding a button is not authorization.
+
+### 2.4 Authentication
+- **Everyone signs in through OIDC** (`apps/mock-oidc` locally; Auth0-compatible in production) behind an issuer adapter, so changing the issuer needs no business-logic change. Customers and staff use the same flow and the same issuer.
+- **Provisioning:** the first sign-in of an unknown subject creates a user with the `customer` role only (name and email from the token claims). Staff, admin and owner roles are never auto-assigned: they are seeded or assigned by the Owner/Admin, and `users.manage` cannot assign `customer` to a staff account or a staff role to a customer account. A shopper who is also staff uses a separate account.
+- Web sessions use a secure HTTP-only cookie plus a CSRF token on every state-changing request (customers included). No tokens in `localStorage`. In local development over plain HTTP the `Secure` flag is configurable; production requires it.
+- Customer isolation is enforced in the query (`WHERE customer_user_id = :current_user`), not only in the route. Another customer's order returns 404, the same as an unknown order.
+- Demo credentials are seeded and documented apart from production secrets: one account per staff profile, an Admin, an Owner and two customers (so isolation can be demonstrated). All secrets are environment variables.
+
+---
+
+## 3. Domain terms and source of truth
+
+- **Order:** OrderFlow's own record; OrderFlow is the single source of truth for orders, prices, payment verification, checklist, lifecycle, audit and refund applications. There is no external system to sync.
+- **Customer account:** a `users` row with the `customer` role. An order links to it through `customer_user_id`. A manual order (entered by staff) has none.
+- **Order number:** unique, human readable, generated by the database (`OF-000001`). Set once.
+- **Public token:** 128-bit random value, sent to the customer in the confirmation email as a tracking link. Set once. Never logged. It grants status-only access.
+- **Payment verified:** the order total has been matched by one successful payment event or one manual confirmation. `payment_verified_at` is the server time of that moment and is set once.
+- **Dispatch:** the one-time act of recording a parcel as handed to a courier, with a tracking number. Internal only.
+- **Offline dispatch:** a dispatch queued by an Owner or Admin on a device without connection while the Owner override is on, applied to the server on reconnection.
+- **Address change request:** a customer's proposed corrected delivery address for one of their own pre-dispatch orders, awaiting an Owner/Admin decision.
+- **Checklist epoch:** a counter on each order that increases whenever the checklist is reset by an applied address change. Every checklist action states the epoch it was made under.
+- **Stock hold:** a temporary block on ordering a product while a staff out-of-stock report awaits review. The product stays visible.
+- **Product snapshot:** order lines copy product title, SKU and unit price at order time. Later catalogue changes never alter existing orders.
+
+---
+
+## 4. Platforms and navigation
+
+One responsive web application (`apps/web`, React + Vite + TypeScript + TanStack Query). No native app.
+
+**Customer routes:** `/shop` and product pages (public); `/sign-in`; `/cart`; `/checkout` (sign-in required); `/pay/:orderNumber` (the order's owner only); `/my-orders` and `/my-orders/:orderNumber`; `/help/address-change` (Help / FAQ / Report Wrong Address); `/track` (status-only link from the confirmation email). Customers never see the staff workspace.
+
+**Staff workspace, four primary navigation items only:**
+
+| Item | Contents |
+|---|---|
+| **Orders** | Two-column split pane. Left: searchable, filterable queue with the Needs attention groups. Right: order detail, the Checklist section (five numbered collapsible steps), dispatch and delivery actions, address request decision, cancel, notes, and the append-only timeline |
+| **Refund Applications** | List, create from an order, review (Owner/Admin) |
+| **Reports** | Dispatch performance and refund applicants (via `apps/analytics`) |
+| **Admin & Health** | Users and roles; **Products** (create, edit, photo upload); **Stock requests** (review queue); **Settings** (Owner/Admin: `sla_unstarted_hours`, `delivery_charge_pkr`, `address_change_window_hours`, `stock_hold_hours`; Owner only: offline-dispatch override and `admin_can_perform_staff_tasks`); **Email outbox**; health status; offline sync issues; mock-mode demo tools |
+
+Every server-dependent screen shows its state (loading, synchronized, queued offline, failed) in text as well as colour. Touch targets suit tablets and phones. Interface text is English.
+
+---
+
+## 5. Functional requirements
+
+### FR-01 Customer accounts, storefront and order intake
+- **Sign-in:** customers must sign in (OIDC, `customer` role) before placing an order or viewing order history. Browsing the catalogue stays public (D-14). Checkout sends an unauthenticated visitor to sign-in and then back to the cart.
+- **Catalogue and products:** `GET /api/v1/storefront/products` lists available products with their photos. Admin/Owner (`products.manage`) create and edit products: `POST /api/v1/admin/products` and `PATCH /api/v1/admin/products/:id` (title, description, price, `availability`). `availability` is one of `AVAILABLE`, `HIDDEN` (not listed) or `OUT_OF_STOCK` (listed with an "Out of stock" badge, Add to cart disabled, cannot be ordered). A product under an active stock hold (FR-15) is listed with "Checking availability, temporarily unavailable" and cannot be ordered. A price edit never changes an existing order. There are no stock counts (D-34).
+- **Product photos (mobile friendly):** Admin/Owner upload several photos per product from a phone camera or gallery. The screen offers two controls, because most phone browsers skip the gallery when `capture` is set: **Take photo** (`<input type="file" accept="image/*" capture="environment">`) and **Choose from gallery** (`<input type="file" accept="image/*" multiple>`).
+  - Endpoint: `POST /api/v1/admin/products/:id/images`, `multipart/form-data`, up to 5 files per request, **at most 5 MB per image**.
+  - Only JPEG, PNG and WebP, checked by the file's leading bytes, not by its extension or declared type. At most 10 active photos per product.
+  - Stored on the local Docker volume mounted at `/uploads`; no cloud or S3 account. File names are generated by the server (UUID); the uploaded name is never used. Served read-only from `/uploads/products/<uuid>.<ext>` with `X-Content-Type-Options: nosniff`.
+  - **The 100 KB limit applies strictly to JSON API bodies** and is never raised for a JSON route; the image route has its own streaming limit of 5 MB per file.
+  - Removing a photo marks it inactive (`PATCH /api/v1/admin/products/:id/images/:imageId`, which also sets order). The app never deletes files or rows.
+  - Phone photos carry location metadata. Re-encoding to strip it is required once the package for it is approved (D-20).
+- **Creating an order:** `POST /api/v1/orders` needs a signed-in user: a customer (`customer.order.create`) or a staff user with `orders.create` (manual phone or WhatsApp order). Body: recipient name, phone, **email** (required for customer orders), delivery address, optional note, `request_id`, `expected_total` (the total the customer was shown), and lines of `{product_id, quantity}`.
+  - **The client never sends prices or totals.** The server reads current prices, builds the snapshot lines, computes the subtotal, adds the fixed delivery charge (`system_settings.delivery_charge_pkr`, default `0.00`) and stores the total. Unknown products, products that are not `AVAILABLE`, and products under an active stock hold are rejected with `PRODUCT_UNAVAILABLE`; product rows are read `FOR SHARE` so a stock hold being created at the same moment and the order are serialized. If the server's total differs from `expected_total`, no order is created and the response is 409 `PRICE_CHANGED` with the current total, so the customer confirms the new price (D-35). `expected_total` is a consent check only; it is never used as a price.
+  - Quantity 1 to 20 per line; at most 30 lines.
+  - Customer orders get `source = STOREFRONT` and `customer_user_id` set to the signed-in customer. Manual orders get `source = MANUAL`, no customer link, and an optional `external_reference`.
+  - New orders start `PENDING_PAYMENT`. The five checklist rows are created with the order but cannot be completed until it is `PAID`.
+- **Address: free before submitting, fixed afterwards.** The customer types and edits the delivery address freely on the checkout form until they submit. After that the customer cannot edit it; a correction goes through the request flow in FR-04.
+- **Confirmation email:** after the order commits, the server sends a confirmation containing the `order_number` and the `public_token` (as a tracking link) through the `EmailAdapter` port. In Phase 1 `EMAIL_ADAPTER=mock` renders the message into the `email_outbox` table, which Owner/Admin read under Admin & Health and at `GET /api/v1/admin/email-outbox` (`system.manage`). No SMTP account is needed for `docker compose up`. The email never contains an address or phone number. Sending is best effort: a failure never rolls back or blocks the order, is recorded in the audit log, and Phase 1 does not retry automatically (D-19).
+- **My orders:** `GET /api/v1/my/orders` and `GET /api/v1/my/orders/:orderNumber` (`customer.order.read_own`) return only orders where `customer_user_id` equals the signed-in user. They show order number, items, totals, status, timestamps (placed, payment verified, dispatched, delivered, cancelled), the tracking number once dispatched, the order's own delivery address, and the state of any address request. They never show internal notes, checklist, audit events, the payment reference or staff names.
+- **Immutability:** lines, prices and totals can never change after creation.
+- **Abuse limits:** order creation is rate-limited per user (default 10 per hour); tracking per IP (default 30 per minute). Phone must match `^\+?[0-9]{10,15}$`; the database also keeps `phone_normalized` (digits only, generated) for exact-match search. JSON bodies over 100 KB are rejected.
+- **Status link:** `GET /api/v1/storefront/orders/:orderNumber?token=<public_token>` returns status, timestamps and tracking number only. A wrong token returns the same 404 as an unknown number.
+
+**Acceptance:** an anonymous `POST /orders` returns 401; tampering with a price has no effect; duplicate `request_id` returns the original order; customer A cannot read customer B's order (404); an order's address cannot be changed by the customer after submission; a 5 MB image is accepted and a larger one, a renamed text file or a fifth-plus-one file is refused with a stable code; the confirmation email appears in the outbox with the order number and token and without an address; an email failure does not stop the order.
+
+### FR-02 Payment verification (`PENDING_PAYMENT` to `PAID`)
+Two paths, both ending in the same server transaction, the same audit event and the same set-once `payment_verified_at`.
+
+1. **Payment event (`PaymentAdapter`):** `POST /api/v1/webhooks/payments`.
+   - Verified with HMAC-SHA256 over the **raw body** using the adapter secret and `crypto.timingSafeEqual`.
+   - Stored in `payment_events` deduplicated on `(provider, provider_event_id)`. A repeated event returns the original result and has no second effect.
+   - Applied **inside the request, in one transaction** (no background worker). The paid amount must equal the order total exactly (decimal compare) and the currency must be `PKR`. Otherwise the event is stored as `REJECTED` with a reason (`AMOUNT_MISMATCH`, `CURRENCY_MISMATCH`, `ORDER_NOT_PAYABLE`, `UNKNOWN_ORDER`), the order stays `PENDING_PAYMENT`, and an audit event is written.
+   - An invalid signature returns 401, stores nothing about the order, and is rate-limited per IP.
+   - `MockPaymentAdapter` produces correctly signed events. A mock checkout page at `/pay/:orderNumber` (signed-in owner of the order only) offers "Simulate successful payment"; the server-side mock gateway then signs and delivers an event through this same endpoint, so the real verification code runs. Mock endpoints and demo tools exist only when `PAYMENT_ADAPTER=mock` and are absent otherwise.
+2. **Manual confirmation:** `POST /api/v1/orders/:id/confirm-payment` by a user with `payment.confirm`, with `request_id`, `expected_version`, `payment_method` (`BANK_TRANSFER`, `RAAST`, `MOBILE_WALLET`, `CASH`) and a required `payment_reference` (1 to 100 characters, no card numbers). The confirming user and reference are stored and audited. Staff without `payment.confirm` receive 403.
+
+A partial payment or an overpayment is never accepted automatically: the event is rejected and an Owner/Admin decides manually. Staff never see `PENDING_PAYMENT` orders.
+
+**Acceptance:** valid event moves the order to `PAID` once; tampered signature, amount mismatch, wrong currency and duplicate event all behave as above; manual confirmation by Staff is refused; `payment_verified_at` cannot change after being set.
+
+### FR-03 Order queue and search (left pane of Orders) — TA Req #1
+- Default view for everyone: **Pending** (`PAID` and `PREPARING`, the work to do). Other filters: Dispatched, Completed (`DELIVERED`), Needs attention. Owner/Admin also get **Awaiting payment** and **Cancelled**.
+- **Authorization comes before search, in the query itself.** Staff profiles receive only orders in `PAID` or later and **never an order with an open address change request** (D-37). Owner/Admin receive every order. A search can never return an order the user could not open, and opening an unauthorized order returns 404.
+- **Search fields:** order number (exact, or prefix such as `OF-0001`); customer name (case-insensitive, contains); tracking number (exact); **customer phone** (exact match on `phone_normalized`; the typed value is normalized the same way; partial numbers return nothing, so numbers cannot be guessed digit by digit; requires `order.address.read`; online only; rate limited to 30 per minute per user; the typed number is never logged) (D-25). Never by address or email.
+- **Each row shows:** order number, customer name, **payment status** (`Awaiting payment`, `Verified` with method, `Payment issue`) and **lifecycle status** in text and colour, checklist progress "N of 5", tracking number once dispatched, and Needs attention badges. Selecting a row opens the order detail in the right pane.
+- Page size 25 (max 100). Pending is sorted by payment verification time, oldest first.
+- **Needs attention** has five groups. An order can be in more than one; each group shows its count and the queue returns `attention_reasons` per order (filter `reason=`):
+
+| Group | `reason` code | An order is in it when | Visible to |
+|---|---|---|---|
+| 1 Payment issues | `PAYMENT_ISSUE` | It is `PENDING_PAYMENT` and its latest payment event was `REJECTED`; **or** a payment event arrived while the order was not payable (cancelled or already paid, a possible double payment) and has not been marked reviewed | Owner, Admin |
+| 2 Offline sync conflicts | `OFFLINE_CONFLICT` | It has an unreviewed `OFFLINE_ACTION_REJECTED` | Owner, Admin |
+| 3 Overdue or unstarted paid orders | `SLA_OVERDUE` | It is `PAID`, no checklist step is completed, and it has waited longer than `sla_unstarted_hours` (default 24) | All staff, Admin, Owner |
+| 4 Customer wrong-address complaints | `ADDRESS_CHANGE_REQUEST` | `has_pending_address_request = true` | Owner, Admin (staff do not see the order at all) |
+| 5 Stock issues | `STOCK_ISSUE` | It is `PAID` or `PREPARING` and contains a product that is `OUT_OF_STOCK` or under an active stock hold | Owner, Admin |
+
+A payment issue of the second kind is cleared by `POST /api/v1/admin/payment-events/:id/review` (`system.manage`, audited). A stock issue clears itself when the product is `AVAILABLE` again and no hold is active; Owner/Admin otherwise cancel the order (FR-09) or let staff continue if stock was found.
+
+**Acceptance:** staff search never returns an unpaid order or an order with an open address request; phone search matches only the full normalized number and is refused without `order.address.read`; each row shows payment status, lifecycle status and progress; each group has the right members for the right roles.
+
+### FR-04 Order detail (right pane)
+Shows number, payment status, lifecycle status, customer name, items with snapshot prices, totals in PKR, payment method and reference (Owner/Admin), delivery address (with `order.address.read`), the Checklist section, dispatch and delivery blocks, exception notes, any open address request, and the timeline. Exception notes (`order.exception.record`: all three staff profiles, Admin, Owner; max 500 characters) are append-only (D-32).
+
+**Address changes happen only through a customer request.**
+1. **Request (customer):** from the order in `/my-orders/:orderNumber` ("Request address change") or at `/help/address-change`, a signed-in customer picks one of their own orders and submits the proposed corrected address: `POST /api/v1/my/address-change-requests` with `order_number`, `proposed_address`, `request_id`.
+   - Allowed only while the order is `PENDING_PAYMENT`, `PAID` or `PREPARING` **and** the server time is before `orders.created_at + address_change_window_hours` (default 4). Otherwise `ADDRESS_REQUEST_WINDOW_CLOSED` or `INVALID_LIFECYCLE`.
+   - Only one open request per order (`ADDRESS_REQUEST_EXISTS`).
+   - The order row is locked `FOR UPDATE`, the same lock checklist and dispatch use, so a request and a checklist action or dispatch can never interleave.
+   - On commit: `has_pending_address_request` becomes true (database trigger); audit `ADDRESS_CHANGE_REQUESTED` (no address); the order leaves every staff queue and staff search; every checklist action and dispatch is refused with `ADDRESS_REQUEST_PENDING`; a staff user who still has the order open sees "On hold: address under review". The order version does not change.
+   - The window governs submitting only. An open request stays open until decided (D-36).
+2. **Decision (Owner/Admin, `order.address.update`):** a side-by-side view of current and proposed address, with a warning when checklist steps are done ("N steps done; Apply resets the checklist to step 1").
+   - **Apply:** `POST /api/v1/orders/:id/address-change-requests/:requestId/apply` with `request_id` and `expected_version`, only before dispatch. In one transaction: the previous address goes to the append-only `order_address_revisions`; the order takes **exactly** the proposed address; the request becomes `APPLIED`; the flag clears; if any checklist step was completed, all five steps return to not completed, `PREPARING` returns to `PAID`, `checklist_epoch` increases by 1 and audit `CHECKLIST_RESET` records which steps were done; `order_version` increases; audit `ADDRESS_CHANGE_APPLIED` records the fact only. The `order_number` never changes. The order returns to the staff queue for fresh packing with the new label.
+   - **Decline:** `.../decline` with a required reason (max 200). The request becomes `DECLINED`, the flag clears, the checklist is untouched and work resumes where it stopped. The customer can submit a new request while the window is open.
+   - **Cancel** of the order closes an open request as `VOID` (FR-09).
+3. **No open request, no change.** There is no free-form address edit for anyone.
+4. The customer sees the request state (open, applied, declined with reason, void) on the order in `/my-orders`.
+
+### FR-05 Five-step packing checklist
+Steps, in order:
+1. Confirm the order and customer details.
+2. Verify every product and quantity.
+3. Inspect product condition.
+4. Pack the products securely.
+5. Confirm the package is ready for dispatch.
+
+**Who may act on a step (checked by the server for every request):**
+- Steps 1 and 2 need `checklist.steps_1_2` (`staff_picker_packer`, `staff_full`, Owner). Steps 3, 4 and 5 need `checklist.steps_3_5` (`staff_inspector`, `staff_full`, Owner).
+- **Admin** holds the keys only while `system_settings.admin_can_perform_staff_tasks` is on. The default is `false`: Admin focuses on payment verification, complaints and oversight. Only the Owner switches it, with `PATCH /api/v1/settings/admin-staff-mode`, online only, with a required reason, audited with old and new value (D-16).
+- Different people may do different steps (for example a picker does 1 and 2, an inspector does 3 to 5). A refused step returns `STEP_NOT_PERMITTED`.
+- **Undo** is allowed only for the most recently completed step and only to a user permitted to act on that step.
+
+**Rules:** only when the order is `PAID` or `PREPARING`; strictly in order, a later step cannot be completed while an earlier one is open; completing step 1 moves `PAID` to `PREPARING`; undoing step 1 moves `PREPARING` back to `PAID`; each action records the user and server time; after dispatch the checklist is read-only; all five steps must be done before dispatch. Checklist actions carry a `request_id` and the `checklist_epoch` the user saw; a different epoch returns `CHECKLIST_RESET`. While an address change request is open every checklist action returns `ADDRESS_REQUEST_PENDING`. Step order, permission, epoch and the open-request rule are checked under the order's row lock.
+
+**Screen (right pane):** one primary **Checklist** section containing five numbered, collapsible sub-sections, `1` to `5`.
+- Each sub-section shows the step label, its state (open, done), and who completed it and when.
+- Only the next open step can be expanded and acted on. Later steps are locked with the text "Complete step N first".
+- Only the latest completed step shows **Undo**.
+- A step the signed-in user may not act on is read-only and shows which profile can do it ("Needs inspector").
+- When all five are done the section shows "Ready for dispatch".
+- **Live progress (TA Req #2):** the section header and the queue row show "N of 5 complete" with a progress bar, updated after every action, and the Dispatch confirmation stays disabled until all five mandatory steps are complete.
+
+### FR-06 Safe dispatch (internal, atomic)
+`POST /api/v1/orders/:id/dispatch` with `request_id`, `expected_version`, `tracking_number`, optional `courier_name` (max 50). Requires `dispatch.create`. In **one transaction** the server locks the order row and verifies:
+1. `order_version` equals `expected_version` (else 409 with current state).
+2. Lifecycle is `PREPARING` (not cancelled, not already dispatched).
+3. All five checklist steps are complete.
+4. Tracking number, trimmed, matches `^[A-Za-z0-9-]{6,30}$`.
+5. No dispatch has already succeeded for this order.
+6. **No open address change request** exists for the order (else `ADDRESS_REQUEST_PENDING`; Owner/Admin must apply or decline it first, D-17).
+Then it inserts the dispatch, sets `dispatched_at` from the server clock (set once), moves the order to `DISPATCHED`, increments `order_version` and writes the audit event. No external call is made. Confirmation dialog text: "Dispatch order #[order number]? This records the parcel as handed to the courier and cannot be undone in OrderFlow. Verify the parcel and tracking number before continuing."
+- Same `request_id` with the same payload returns the stored result; with a different payload returns 409.
+- The database also refuses a dispatch row unless the order is `PREPARING` with five completed steps, and refuses a second succeeded dispatch.
+- An offline dispatch follows FR-07, and is limited to Owner and Admin.
+- There is no dispatch undo.
+
+### FR-07 Offline mode and the Owner dispatch override
+**Connectivity:** the web app treats itself as offline when two consecutive `GET /health` pings (every 15 seconds, 3-second timeout) fail, or `navigator.onLine` is false. A visible banner states the mode in words. Offline mode is for staff, Admin and Owner; customers have no offline features.
+
+**While offline, a signed-in staff user can:**
+- **View** orders previously loaded on this device (the queue and details). The cache holds the most recent 200 orders the user could see. Customer phone and email are never cached; the address is cached only for users with `order.address.read`. The cache is wiped on sign-out and after 12 hours without sign-in. Entries show "last synchronized at". Phone search is not available offline.
+- **Work the checklist** for the steps their profile allows (FR-05): complete and undo, stored in a local queue (first in, first out per order) with a client-generated `request_id`, user, the `checklist_epoch` it was made under, and `client_occurred_at` (informational only). The queue has its own IndexedDB store, separate from the cached orders.
+
+**While offline, a user cannot:** create orders, confirm payment, cancel, decide address requests, mark delivery, submit or review refunds, change settings, edit products, or dispatch (except as the override below allows).
+
+**Proactive dispatch lock (default):**
+- While offline, the **Dispatch button is disabled before it can be clicked**, for everyone, unless the override rules below apply.
+- As soon as the **5th checklist step is completed on an offline device**, an alert appears above the disabled Dispatch button: **"Offline — No dispatch available at the moment. Hold parcel until internet is restored."** The same alert shows if an order that already has five steps complete is opened, or the device goes offline while it is open.
+
+**Owner override:** `system_settings.allow_offline_dispatch_override` (default `false`).
+- Changed by `PATCH /api/v1/settings/offline-dispatch-override` with `request_id` and a required reason, **only by the Owner role, only while online**. Every change writes an audit event with actor, time, old value, new value and reason. Admin does not see the switch.
+- **Even when it is on, only Owner and Admin may queue an offline dispatch** (`is_offline = true`). Regular staff, including staff with `cap_dispatch`, stay blocked from offline dispatch at all times and always see the alert above. Staff can still dispatch online.
+- When the override is on and the signed-in user is Owner or Admin, the Dispatch button is enabled offline once the five steps show complete locally, and a persistent banner reads: "Offline dispatch override is ON. Queued dispatches are applied when the connection returns."
+- The app learns the setting value whenever it is online and keeps the last known value. A stale cached `true` grants nothing by itself: the server decides at sync time.
+
+**Synchronisation:** on reconnection the client sends the queue to `POST /api/v1/offline-sync`. The server processes items one by one, in order, each in its own transaction, by calling the same service functions as the online endpoints, so every normal rule applies, including step permissions (an Admin whose staff-mode was switched off meanwhile is refused). Per item the response is `APPLIED`, `ALREADY_APPLIED` (same `request_id`) or `REJECTED` with a code.
+- Queued items ignore the stale `expected_version`; the server validates by state instead (lifecycle, checklist order, not already dispatched, no open address request) and requires the queued `checklist_epoch` to equal the order's current one, otherwise `REJECTED: CHECKLIST_RESET` and the device reloads that order.
+- A queued **dispatch** is applied only if the actor is Owner or Admin **now** and the override is **on at the moment of sync**; otherwise `REJECTED: OFFLINE_DISPATCH_NOT_AUTHORIZED`. A forged queue item from a staff account is refused the same way.
+- `dispatched_at` and every other server timestamp are the **sync time** from the server clock. The device time is stored only as `client_occurred_at`, and `dispatches.is_offline = true` marks the row. Reports state how many dispatches were applied offline.
+- A rejected item (order cancelled, already dispatched elsewhere, steps out of order, open address request, override off, role not allowed) is removed from the queue, shown to the user, written to the audit log as `OFFLINE_ACTION_REJECTED`, and listed under Admin & Health, "Offline sync issues", where Owner/Admin mark it reviewed (an audit event).
+- Warning shown beside the override switch: if two devices both dispatch the same order offline, the first to synchronise wins and the second is rejected, but a second physical parcel may already have left.
+
+**Acceptance:** the Dispatch button is disabled offline before any click; the exact alert text appears when the 5th step is completed offline; staff can never dispatch offline, with or without the override; Owner/Admin can only when the override is on; the override can only be changed by the Owner, online, with a reason, audited; queued checklist actions replay in order and respect step permissions; a rejected action is reported and logged; no phone or email is stored on the device; the cache is cleared on sign-out.
+
+### FR-08 Delivery confirmation
+By `delivery.confirm` (Owner/Admin always), online only, for a `DISPATCHED` order, with `request_id` and `expected_version`. The server sets `delivered_at` and `delivered_by` once. Delivery is permanent; repeats return the existing result; the optional note is limited to 200 characters. Corrections are separate exception notes.
+
+### FR-09 Cancellation (before dispatch only)
+`POST /api/v1/orders/:id/cancel` by `order.cancel`, with `request_id`, `expected_version` and a required reason (max 200). Allowed from `PENDING_PAYMENT`, `PAID` or `PREPARING`; never after dispatch. `CANCELLED` is terminal. Cancelling also closes an open address change request as `VOID` and clears the flag, in the same transaction. Cancelling a paid order does not move money; the Owner/Admin handles any repayment outside OrderFlow and may record a refund application against the cancelled paid order (FR-11).
+
+### FR-10 Order timeline
+Chronological and append-only, built from `audit_events` for the order: order created, payment event received or rejected, payment verified (path, actor), each checklist action, address change requested, applied or declined (facts only, never the address), confirmation email stored or failed, dispatched (tracking, offline flag), delivered, cancelled, notes, refund application events, offline actions rejected. Each event has type, actor type and id, UTC time, safe structured details from a per-type allowlist, and the `request_id` where one exists. Corrections are new events.
+
+### FR-11 Manual refund applications
+Unchanged in meaning from v3.0 and always labelled "Manual refund application tracking. No payment is issued by OrderFlow." An application may be recorded for an order that is `DISPATCHED`, `DELIVERED`, or `CANCELLED` after payment was verified. It stores customer and order, reason, requested lines and quantities (snapshot), submitting user, optional note, and optional manually entered delivery-charge and approved amounts. Statuses: `SUBMITTED`, `UNDER_REVIEW`, `APPROVED_MANUALLY`, `DECLINED`, `CLOSED`. Only `refund.review` holders decide. OrderFlow never moves money, changes payment status or sets a `REFUNDED` status. Duplicate `request_id` creates no duplicate. Staff submit applications (`refund.apply`); customers do not.
+
+**Paid outside OrderFlow (optional record, D-26):** after an application is `APPROVED_MANUALLY`, an Owner/Admin may record that the business repaid the customer outside OrderFlow: `POST /api/v1/refund-applications/:id/paid-outside` with amount (PKR, greater than 0 and at most the order total), reference (max 100, no card or account numbers) and `request_id`. It is recorded once, shown everywhere as "Recorded as paid outside OrderFlow", and changes no payment or lifecycle status. OrderFlow still moves no money.
+
+### FR-12 Dispatch performance and sales report — TA Req #3
+**Access:** `report.view` (Owner, Admin, and staff with `cap_report`) (D-30). Served by `apps/analytics` through the API.
+
+**Range:** **Today** (the current `Asia/Karachi` day) or a custom **From to To** of Karachi dates; start inclusive, end through the start of the next local day. Views: one total for the range, or **Daily**, **Weekly** (weeks start Monday, D-31) or **Monthly** buckets in Karachi time.
+
+**Authoritative timestamps:** only the server-recorded `payment_verified_at`, `dispatched_at` and `delivered_at`. Device times are never used.
+
+**Figures:**
+1. **Dispatched count:** orders whose `dispatched_at` is in range.
+2. **Delivered count:** orders whose `delivered_at` is in range (counted on its own timestamp).
+3. **Turnaround** = `dispatched_at − payment_verified_at`. The report population (D-24) is every non-cancelled order whose `payment_verified_at` **or** `dispatched_at` falls in range. **Average**, median, fastest and slowest are computed only over population orders that have both timestamps and a non-negative duration.
+4. **Excluded count (`excluded_missing_timestamps_count`):** the exact number of population orders left out of the average, always shown, including 0, as "Excluded N orders without both timestamps", with the breakdown: not yet dispatched (no `dispatched_at`) and negative duration (data-integrity exception). With the timestamp CHECKs in section 7, a missing `payment_verified_at` cannot occur.
+5. **Offline-applied dispatches:** count of `dispatches.is_offline` in range; their turnaround ends at sync time.
+6. **Verified sales (PKR)** = sum of totals of non-cancelled orders whose `payment_verified_at` is in range; **units sold** = sum of their line quantities.
+7. **Order rows:** order number, payment verified time, dispatched time, delivered time, turnaround.
+
+An empty range shows counts of 0 and averages as "N/A". Read-only.
+
+### FR-13 Audit
+Every security-sensitive or business-critical action writes an append-only audit event in the same transaction as the change: sign-ins and permission denials, role changes, payment events and verification, address changes, checklist actions, dispatch, delivery, cancellation, refund events, settings changes, product and photo changes, stock requests and decisions, checklist resets, payment-event reviews, paid-outside refund records, first-sign-in provisioning of customers, email outcomes, offline rejections. Details use a per-event Zod allowlist; no tokens, secrets, card data or customer contact data.
+
+### FR-14 Health and operational status
+- `GET /health` (public): application and database state.
+- Admin & Health shows: database state, last payment event received, rejected payment events in the last 24 hours, offline sync issues awaiting review, open address requests, active stock holds and pending stock requests, failed confirmation emails in the last 24 hours, current override and staff-mode state, and the `PAYMENT_ADAPTER` and `EMAIL_ADAPTER` modes. There is no worker in Phase 1.
+
+### FR-15 Stock availability requests
+- **Report (staff):** a user with `product.stock.report` (all three staff profiles, Admin, Owner) reports a product as out of stock from an order line in the order detail or from the product list: `POST /api/v1/products/:id/out-of-stock-requests` with optional `order_id`, optional reason (max 200) and `request_id`. Only one `PENDING` request per product (`STOCK_REQUEST_EXISTS`).
+- **Hold:** while the request is `PENDING` and the server time is before `expires_at` (`created_at + stock_hold_hours`, default 4), the product is **held**: it stays listed on `/shop` and its page keeps working, it shows "Checking availability, temporarily unavailable", Add to cart is disabled, and `POST /orders` refuses it with `PRODUCT_UNAVAILABLE`. Paid orders containing it appear in `STOCK_ISSUE`.
+- **Expiry without a background job:** a hold is active only if the request is `PENDING` and `expires_at` is in the future, evaluated when reading. When it lapses, ordering resumes automatically and the request shows as expired; the next write on it (a review or a new report) records the status `EXPIRED`. A new report on a product whose request has lapsed first closes the old one as `EXPIRED` in the same transaction (D-38).
+- **Review (Owner/Admin, `product.stock.review`):** `POST /api/v1/admin/out-of-stock-requests/:id/approve` sets the product's `availability` to `OUT_OF_STOCK` (still listed with an "Out of stock" badge, not orderable). `.../decline` with a required note lifts the hold. A lapsed request can still be approved. Marking the product back in stock is `PATCH /api/v1/admin/products/:id` with `availability = AVAILABLE`.
+- **Concurrency:** creating a request locks the product row `FOR UPDATE`; order creation reads product rows `FOR SHARE`. An order that commits first is kept; once the request commits no new order can include the product.
+- Every report, approval, decline and expiry is audited. Customers never see who reported or why.
+
+**Acceptance:** scenarios 55 to 59.
+
+---
+
+## 6. Lifecycle
+
+`PENDING_PAYMENT → PAID → PREPARING → DISPATCHED → DELIVERED`, plus `CANCELLED` (terminal, before dispatch only).
+
+| From | Event | To | Rule |
+|---|---|---|---|
+| (new) | Order created | `PENDING_PAYMENT` | Server-priced |
+| `PENDING_PAYMENT` | Verified payment event or manual confirmation | `PAID` | Exact total, PKR; sets `payment_verified_at` once |
+| `PAID` | Checklist step 1 completed | `PREPARING` | |
+| `PREPARING` | Checklist step 1 undone | `PAID` | Only when step 1 is the only completed step |
+| `PREPARING` | Address change request applied | `PAID` | All five steps reset; `checklist_epoch` + 1 (FR-04) |
+| `PREPARING` | Dispatch recorded | `DISPATCHED` | Five steps done; valid tracking; sets `dispatched_at` once |
+| `DISPATCHED` | Delivery confirmed | `DELIVERED` | Sets `delivered_at` once |
+| `PENDING_PAYMENT`, `PAID`, `PREPARING` | Cancel | `CANCELLED` | Reason required |
+
+No other transition exists. The database trigger enforces this exact graph, not only the terminal states.
+
+**Versioning:** `order_version` starts at 1 and increments on every lifecycle transition and every applied address change request. Checklist actions that do not change the lifecycle do not increment it; they are protected by the row lock and step-order rule. A version mismatch on a request that requires `expected_version` returns 409 with the current state. `checklist_epoch` starts at 0, only increases, and changes only when an applied address request resets the checklist.
+
+**Timestamp rules (database CHECKs):** `PAID`, `PREPARING`, `DISPATCHED` and `DELIVERED` require `payment_verified_at`; `DISPATCHED` and `DELIVERED` require `dispatched_at`; `DELIVERED` requires `delivered_at`.
+
+---
+
+## 7. Data requirements
+
+Names follow the existing schema where the concept survives.
+
+| Table | Purpose and key rules |
+|---|---|
+| `users`, `roles`, `permissions`, `user_roles`, `role_permissions` | Existing. New roles and keys seeded (section 2). Retired: `staff`, `cap_address_update`, `checklist.update`. Unique `oidc_subject`; first sign-in uses `INSERT ... ON CONFLICT` |
+| `products` (new) | `id`, `sku` unique, `title`, `description`, `price NUMERIC(12,2) CHECK (>= 0)`, `availability` (`AVAILABLE`, `HIDDEN`, `OUT_OF_STOCK`) |
+| `product_images` (new) | `id`, `product_id`, `file_name` (server UUID plus extension), `content_type` (`image/jpeg`, `image/png`, `image/webp`), `byte_size CHECK (<= 5242880)`, `sort_order`, `is_active`, `created_by`, `created_at`. Never deleted by the app |
+| `product_stock_requests` (new) | `product_id`, `order_id` (nullable), `requested_by`, `reason`, `status` (`PENDING`, `APPROVED`, `DECLINED`, `EXPIRED`), `expires_at`, `reviewed_by`, `reviewed_at`, `decision_note`, `created_at`. Partial unique index: one `PENDING` per product. Status moves only from `PENDING` |
+| `orders` | `order_number` (set once), `public_token` (set once), `source`, `customer_user_id` (nullable FK, set once; null for manual orders), `external_reference`, `has_pending_address_request`, `checklist_epoch` (integer, starts 0, only increases), `phone_normalized` (generated, digits only, indexed), `payment_method`, `payment_reference`, `payment_confirmed_by`, `cancellation_reason`, `cancelled_at`; plus totals, recipient fields, address, `lifecycle_status`, `order_version`, `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by` |
+| `order_items` | Snapshot lines: `product_id`, title, SKU, `quantity`, `unit_price`, `line_total`. Never updated or deleted by the app role |
+| `address_change_requests` (new) | `order_id`, `requested_by`, `proposed_address`, `status` (`OPEN`, `APPLIED`, `DECLINED`, `VOID`), `decision_reason`, `decided_by`, `created_at`, `decided_at`. Partial unique index: one `OPEN` per order. `proposed_address` cannot change; status moves only from `OPEN`. A trigger refuses an insert after the submission window or after dispatch (D-27) |
+| `order_address_revisions` (new) | Append-only previous addresses with who and when |
+| `checklist_steps` | Five rows per order; completed flag, who, when. Reset by an applied address request |
+| `dispatches` | Only succeeded dispatches exist. `courier_name`, `is_offline`, `client_occurred_at`. Tracking CHECK `^[A-Za-z0-9-]{6,30}$` (trimmed). One succeeded dispatch per order. Insert trigger: order `PREPARING`, five steps complete, no open address request |
+| `payment_events` (new, replaces `webhook_inbox`) | `provider`, `provider_event_id`, `order_id`, `amount`, `currency`, `signature_valid`, `status` (`APPLIED`, `REJECTED`), `reason`, `received_at`, `reviewed_by`, `reviewed_at`. Unique `(provider, provider_event_id)`. Raw body not stored |
+| `email_outbox` (new) | `order_id`, `to_address`, `subject`, `body_text`, `status` (`STORED`, `FAILED`), `error_code`, `created_at`. **Inserted once, inside the order transaction**; the adapter only updates its status. Readable only with `system.manage` |
+| `idempotency_keys` (new) | `request_id` (unique with actor scope), `endpoint`, `payload_hash`, `response_status`, `response_body`, `created_at` |
+| `system_settings` (new) | `key` primary key, `value` jsonb, `updated_by`, `updated_at`. Keys, all seeded by migration `0003`: `allow_offline_dispatch_override` (false), `admin_can_perform_staff_tasks` (false), `sla_unstarted_hours` (24), `delivery_charge_pkr` (0.00), `address_change_window_hours` (4), `stock_hold_hours` (4) |
+| `refund_applications`, `refund_application_items` | Existing, order link now local. Add `paid_outside_amount`, `paid_outside_reference`, `paid_outside_recorded_by`, `paid_outside_recorded_at`, set once, only when `APPROVED_MANUALLY`, amount at most the order total (trigger) |
+| `order_notes`, `audit_events` | Existing, append-only by trigger |
+| Reporting views (new) | `report_orders_v` (order id, number, lifecycle, totals, the three timestamps, cancelled flag), `report_order_items_v` (order id, product title, SKU, quantity), `report_dispatches_v` (order id, `dispatched_at`, `is_offline`), `report_refunds_v` (application fields, order number, customer name, paid-outside fields). No address, phone, email, notes, audit or payment reference |
+
+**Removed tables:** `webhook_inbox`, `integration_state`, `worker_heartbeats`, `mock_shopify_orders`, `mock_controls`.
+
+**Integrity rules:** money is `NUMERIC(12,2)` with non-negative CHECKs, decimal strings in JSON; all timestamps `TIMESTAMPTZ` UTC, server clock only for anything OrderFlow records; set-once triggers on `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`, `order_number`, `public_token`, `customer_user_id` and the paid-outside fields; the lifecycle trigger enforces the graph in section 6; the timestamp CHECKs in section 6; `checklist_epoch` only increases; foreign keys everywhere; `orderflow_app` has no DELETE or TRUNCATE; **`orderflow_ro` can read only the reporting views** and nothing else.
+
+---
+
+## 8. API (all under `/api/v1`, JSON, decimal strings for money)
+
+| Method and path | Who | Notes |
+|---|---|---|
+| `GET /health` (at root) | public | App and database |
+| `GET /storefront/products` | public | Available products with photos |
+| `GET /uploads/products/:file` (at root) | public, read only | Product photos |
+| `GET /storefront/orders/:orderNumber?token=` | token holder | Status only, no PII |
+| `POST /webhooks/payments` | signed event | Raw-body HMAC |
+| `GET /me` | signed in | Roles, permissions, checklist steps allowed, flags |
+| `POST /orders` | `customer.order.create` or `orders.create` | `request_id`; server-priced; sends confirmation email |
+| `GET /my/orders`, `GET /my/orders/:orderNumber` | `customer.order.read_own` | Own orders only |
+| `POST /my/address-change-requests` | `customer.address_request.create` | Own pre-dispatch order |
+| `POST /mock-gateway/orders/:orderNumber/pay` | order's owner, **mock mode only** | Server signs and delivers a payment event |
+| `GET /orders`, `GET /orders/:id`, `GET /orders/:id/timeline` | `orders.read` (unpaid needs `payment.confirm`) | Filters, search (`phone` needs `order.address.read`), `reason=`, paging; staff never receive orders with an open address request |
+| `POST /admin/payment-events/:id/review` | `system.manage` | Clears a payment issue of the second kind |
+| `POST /orders/:id/confirm-payment` | `payment.confirm` | `request_id`, `expected_version` |
+| `POST /orders/:id/cancel` | `order.cancel` | `request_id`, `expected_version`, reason |
+| `GET /address-change-requests`, `GET /orders/:id/address-change-requests` | `order.address.update` | Open requests; one order's history |
+| `POST /orders/:id/address-change-requests/:requestId/apply` and `/decline` | `order.address.update` | `request_id`; apply needs `expected_version`; decline needs reason |
+| `POST /orders/:id/checklist/:step/complete` and `/undo` | `checklist.steps_1_2` or `checklist.steps_3_5`, by step | `request_id` |
+| `POST /orders/:id/dispatch` | `dispatch.create` | `request_id`, `expected_version`, tracking |
+| `POST /orders/:id/deliver` | `delivery.confirm` | `request_id`, `expected_version` |
+| `POST /orders/:id/notes` | `order.exception.record` | Append-only |
+| `POST /orders/:id/refund-applications`, `GET /refund-applications`, `POST /refund-applications/:id/review` | `refund.apply` / `refund.read` / `refund.review` | |
+| `POST /refund-applications/:id/paid-outside` | `refund.review` | Once, after `APPROVED_MANUALLY` |
+| `POST /offline-sync` | signed-in staff | Batch; per-item result |
+| `GET /settings`, `PATCH /settings/operations` (`sla_unstarted_hours`, `delivery_charge_pkr`, `address_change_window_hours`, `stock_hold_hours`) | `system.manage` | Reason required, audited |
+| `PATCH /settings/admin-staff-mode` | `settings.owner` | Reason required |
+| `PATCH /settings/offline-dispatch-override` | `settings.owner` | Reason required |
+| `GET`, `POST /admin/products`, `PATCH /admin/products/:id` | `products.manage` | |
+| `POST /admin/products/:id/images`, `PATCH /admin/products/:id/images/:imageId` | `products.manage` | Multipart, 5 MB per image |
+| `POST /products/:id/out-of-stock-requests` | `product.stock.report` | `request_id`; optional order and reason |
+| `GET /admin/out-of-stock-requests`, `POST /admin/out-of-stock-requests/:id/approve` and `/decline` | `product.stock.review` | Decline needs a note |
+| `GET /admin/email-outbox` | `system.manage` | Mock mode |
+| `GET /admin/offline-conflicts`, `POST /admin/offline-conflicts/:id/review` | `system.manage` | |
+| `GET /admin/health` | `system.manage` | Status panel data |
+| `GET /reports/dispatch-performance?preset=today\|custom&from=&to=&bucket=none\|day\|week\|month`, `GET /reports/refund-applicants?from=&to=` | `report.view` | The API checks the permission and forwards to `apps/analytics` with the internal secret; analytics is never reachable from the browser |
+
+**Common rules:** errors are `{ error: { code, message, correlation_id } }`; codes include `VALIDATION_FAILED`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT`, `INVALID_LIFECYCLE`, `CHECKLIST_INCOMPLETE`, `CHECKLIST_OUT_OF_ORDER`, `STEP_NOT_PERMITTED`, `INVALID_TRACKING`, `ALREADY_DISPATCHED`, `ADDRESS_REQUEST_PENDING`, `ADDRESS_REQUEST_EXISTS`, `NO_OPEN_ADDRESS_REQUEST`, `PAYMENT_AMOUNT_MISMATCH`, `OFFLINE_DISPATCH_NOT_AUTHORIZED`, `IMAGE_TOO_LARGE`, `UNSUPPORTED_IMAGE_TYPE`, `PRICE_CHANGED`, `PRODUCT_UNAVAILABLE`, `STOCK_REQUEST_EXISTS`, `ADDRESS_REQUEST_WINDOW_CLOSED`, `CHECKLIST_RESET`, `RATE_LIMITED`. List endpoints are paged. Every state-changing endpoint requires a `request_id`, including order creation. The one exception is the signed payment event, which is deduplicated by its provider event id. JSON bodies are limited to 100 KB; only the image route accepts multipart.
+
+---
+
+## 9. Non-functional requirements
+
+- **NFR-01 Usability:** four primary navigation items; split-pane Orders; a first-time staff member can complete an order without help.
+- **NFR-02 Performance (measured and recorded, not assumed):** with 100 seeded active orders, queue API p95 under 1 second locally and initial queue render under 3 seconds; storefront product list under 1 second locally.
+- **NFR-03 Reliability:** every state change and its audit event commit together or not at all; no lock held across a network call (there are none); duplicate requests are harmless.
+- **NFR-04 Security:** HMAC on raw body; constant-time compare; server-side pricing; unguessable public token; rate limits; CSRF protection; helmet; strict CORS to the configured web origin; no PII or secrets in logs or audit; PII only in the order record, the address request and revision tables, and the opt-in offline address cache; customers can read only their own orders; uploaded files are type-checked by content, size-limited and named by the server; no card data ever.
+- **NFR-05 Data integrity:** sections 6 and 7, enforced in the database and tested directly in SQL.
+- **NFR-06 Maintainability:** TypeScript strict, Zod at every boundary, MVC on the client, hexagonal ports for `PaymentAdapter`.
+- **NFR-07 Accessibility:** status shown by text and colour; keyboard-usable; labelled form fields.
+- **NFR-08 Demo availability:** one `docker compose up --build` runs everything with no external account; mock payment and mock OIDC are the guaranteed path. No feature is shown in the demo that is not working.
+
+---
+
+## 10. Reports and analytics isolation
+
+`apps/analytics` is a separate process using only `orderflow_ro`, callable only with the internal service secret, unable to write anything. It reads only the reporting views (section 7), publishes no host port, and is reached only through the API, which checks `report.view` first. Reports are FR-12 and the refund applicants report (application number and date, order number, customer name and a safe reference, product, variant, SKU, quantity, reason, status, reviewer, review date, manually entered amounts, and any paid-outside record labelled "Recorded as paid outside OrderFlow"). A submitted application is never labelled a completed refund.
+
+---
+
+## 11. Error handling and recovery
+
+| Situation | Behaviour |
+|---|---|
+| Invalid payment signature | 401, nothing applied, rate limited |
+| Amount or currency mismatch | Event stored `REJECTED`; order stays `PENDING_PAYMENT`; audited; Owner/Admin may confirm manually |
+| Duplicate payment event or `request_id` | Original result returned; no second effect |
+| Version conflict | 409 with the current state and a refresh message |
+| Dispatch precondition fails | 4xx with a stable code; nothing written |
+| Database unavailable | `/health` reports it; staff screens show a failed state; dispatch is not possible |
+| Offline | FR-07 |
+| Rejected offline action | Reported to the user, logged, listed for review |
+| Confirmation email fails | Order unaffected; audited; visible in the outbox; no automatic retry |
+| Image too large or wrong type | 413 or 415 with a stable code; nothing stored |
+| Dispatch while an address request is open | Refused with `ADDRESS_REQUEST_PENDING` |
+| Price changed between cart and order | 409 `PRICE_CHANGED` with the new total; no order created |
+| Product held or out of stock at checkout | `PRODUCT_UNAVAILABLE`; the cart marks the line |
+| Address request after the window | `ADDRESS_REQUEST_WINDOW_CLOSED` |
+| Offline action made before a checklist reset | `REJECTED: CHECKLIST_RESET`; the device reloads the order |
+
+---
+
+## 12. Testing and acceptance
+
+**Levels:** unit (domain rules, money, HMAC), integration (repositories, endpoints, real PostgreSQL in Docker), SQL constraint tests as the DB contract, E2E smoke in Playwright, boundary and equivalence tests for tracking length (5, 6, 30, 31, punctuation), amounts, report date ranges and `order_version`.
+
+**Mandatory scenarios (each slice owns those in its scope):**
+1. Signed-in customer order priced by the server; client price tampering ignored; anonymous `POST /orders` returns 401.
+2. Duplicate order `request_id` creates one order.
+3. Valid signed payment event marks `PAID` once.
+4. Invalid signature, amount mismatch, wrong currency, duplicate event handled as FR-02.
+5. Manual payment confirmation by Owner/Admin works; by Staff is 403.
+6. Staff never see `PENDING_PAYMENT` orders.
+7. Checklist order enforced; only the latest step undone; undo of step 1 returns to `PAID`.
+8. Checklist locked after dispatch.
+9. Dispatch with five steps and a valid tracking number succeeds once; every precondition failure writes nothing.
+10. Stale `expected_version` returns 409.
+11. Same `request_id` same payload replays; different payload 409.
+12. Two simultaneous dispatches: exactly one succeeds.
+13. Tracking boundaries 5, 6, 30, 31 and bad punctuation.
+14. Delivery once, permanent, repeat harmless.
+15. Cancel before dispatch works; after dispatch refused; `CANCELLED` terminal.
+16. Set-once timestamps, `order_number` and `public_token` cannot change (SQL).
+17. Lifecycle graph enforced by the database (SQL).
+18. `audit_events` and `order_notes` cannot be updated or deleted even by the owner role (SQL).
+19. Address correction keeps history and writes no address in audit.
+20. Offline: cached orders readable; checklist actions queue and replay in order.
+21. Offline dispatch blocked with override off (UI and sync); the Dispatch button is disabled before any click.
+22. Only the Owner can change the override, online, with reason, audited.
+23. Offline dispatch applied only when the actor is Owner or Admin and the override is on at sync; flagged `is_offline`; `dispatched_at` is server sync time.
+24. Rejected offline item reported, logged and listed.
+25. Refund application recorded without changing lifecycle; only Owner/Admin review; no money-moving code path exists.
+26. Dispatch report: empty range shows N/A; negative duration excluded and counted; Karachi day boundaries.
+27. Analytics role cannot write; `orderflow_ro` cannot read PII columns (SQL).
+28. Role denial per endpoint; no PII or secrets in logs or audit.
+29. Rate limit on order creation (per user) and tracking (per IP).
+30. Mock endpoints do not exist when `PAYMENT_ADAPTER` is not `mock`.
+31. Customer A cannot read customer B's order, list, or address (404); a customer calling any staff endpoint gets 403.
+32. First sign-in provisions a `customer` only; staff roles are never auto-assigned; customer and staff roles cannot be combined on one account.
+33. Picker/packer can do steps 1 and 2 only; inspector 3 to 5 only; full staff all five; each other attempt returns `STEP_NOT_PERMITTED`; undo needs permission for that step.
+34. Admin cannot perform checklist steps by default; can after the Owner switches `admin_can_perform_staff_tasks` on (reason required, audited); is refused again after it is switched off, including queued offline items.
+35. Product photo upload: 5 MB accepted, larger refused; wrong content refused even with an image extension; file stored under a server-generated name; JSON routes still reject bodies over 100 KB.
+36. Order creation stores a mock email in `email_outbox` with order number and token and no address; an email failure does not fail the order.
+37. A customer cannot edit the address after submission; an address request on another customer's order is refused.
+38. Address request flow: submit sets the flag and the `ADDRESS_CHANGE_REQUEST` group; a second open request is refused; apply stores the old address in `order_address_revisions`, uses exactly the proposed address, clears the flag, bumps the version and audits without the address; decline clears the flag with a reason.
+39. Admin cannot change an address when no open request exists.
+40. Dispatch is refused while an address request is open (online and at offline sync).
+41. Needs attention shows the five groups with correct membership and per-role visibility.
+42. Offline: completing the 5th step shows the exact alert text above the disabled Dispatch button.
+43. Staff (including `cap_dispatch`) cannot dispatch offline even with the override on, and a forged queue item is rejected at sync.
+44. Checklist screen: five numbered collapsible steps, locked until the previous is done, Undo only on the latest step.
+45. Phone search matches only the full normalized number, returns only orders the user may open, is refused without `order.address.read`, is rate limited, and is unavailable offline.
+46. Queue rows show payment status, lifecycle status and "N of 5" progress; selecting a row opens the detail; staff results never include unpaid orders or orders with an open address request.
+47. A price change between cart and order returns `PRICE_CHANGED` with the new total and creates no order.
+48. An address request after the window returns `ADDRESS_REQUEST_WINDOW_CLOSED`; after dispatch it is refused; an open request stays open after the window passes.
+49. Every checklist action is refused with `ADDRESS_REQUEST_PENDING` while a request is open, online and at offline sync.
+50. Apply with steps done resets all five steps, moves `PREPARING` to `PAID`, increases `checklist_epoch`, audits `CHECKLIST_RESET`, keeps the `order_number`, and returns the order to the staff queue; Decline leaves progress unchanged.
+51. A queued offline checklist action made before a reset is rejected with `CHECKLIST_RESET` and the device reloads the order.
+52. Cancel works from `PENDING_PAYMENT`, `PAID` and `PREPARING`, and voids an open address request and clears its flag.
+53. Staff queue and staff search exclude orders with an open address request; Owner/Admin see them in `ADDRESS_CHANGE_REQUEST`.
+54. A payment event for a cancelled or already-paid order appears under `PAYMENT_ISSUE` until reviewed; reviewing is audited.
+55. A stock report creates a hold: the product stays listed with "Checking availability", Add to cart is disabled, `POST /orders` returns `PRODUCT_UNAVAILABLE`; a second report on the same product is refused.
+56. A hold ends after `stock_hold_hours` with no background job; a new report on a lapsed request closes it as `EXPIRED` and starts a new hold.
+57. Approve sets `OUT_OF_STOCK` (listed, badged, not orderable); Decline lifts the hold; setting `AVAILABLE` restores ordering; only Owner/Admin review; all three staff profiles can report; customers cannot.
+58. `STOCK_ISSUE` contains exactly the paid or preparing orders with a held or out-of-stock product.
+59. A checkout and a stock report on the same product at the same moment are serialized: no order containing the product is created after the hold commits.
+60. Dispatch report: Today and custom ranges in Karachi time; dispatched and delivered counts; average excludes population orders missing a timestamp or with a negative duration; the excluded count and its breakdown are exact and always shown; Daily, Weekly (Monday) and Monthly buckets; sales and units exclude cancelled orders; an empty range shows N/A.
+61. A paid-outside record is accepted only after `APPROVED_MANUALLY`, only once, only up to the order total, is labelled "Recorded as paid outside OrderFlow", and changes no status.
+62. `apps/analytics` publishes no host port; the API forwards only after `report.view`; a missing or wrong internal secret is refused; `orderflow_ro` can read only the reporting views (SQL).
+63. All three staff profiles can add exception notes; notes are append-only.
+64. Only the Owner can switch Admin staff-mode; Admin receives 403; a reason is required and audited.
+65. The database refuses `PAID` or later without `payment_verified_at`, `DISPATCHED` or later without `dispatched_at`, and `DELIVERED` without `delivered_at` (SQL).
+66. Two simultaneous first sign-ins of the same subject create one user.
+67. NFR-02 targets are measured on 100 seeded active orders and recorded.
+68. A Playwright smoke run of the demo path passes in mock mode: customer signs in, orders, pays; staff complete the checklist; dispatch; delivery; the report shows the order.
+
+### 12.1 TA core requirements
+
+| TA requirement | PRD | Scenarios |
+|---|---|---|
+| TA Req #1: authorized search by order number, customer name or phone; payment and lifecycle status; open details; unauthorized orders excluded | FR-03, FR-04 | 6, 31, 45, 46, 53 |
+| TA Req #2: sequential checklist with completion status, live progress, dispatch blocked until complete | FR-05, FR-06 | 7, 9, 33, 44, 46 |
+| TA Req #3: dispatch performance report for Today or a custom range: dispatched and delivered counts, average payment-to-dispatch time from authoritative timestamps, exact excluded count | FR-12 | 26, 60, 65 |
+
+**Quality gates:** 1 scope and plan; 2 design and tests; 3 implementation works end to end in mock mode; 4 verification evidence recorded; 5 acceptance by the human reviewer. A slice is complete only when criteria and evidence are recorded.
+
+---
+
+## 13. Technical baseline
+
+TypeScript strict; Node 22; Express; Zod; PostgreSQL 16; Prisma with custom SQL for triggers, partial indexes and grants; `jose`; `pino`; `helmet`, `cors`, `express-rate-limit`, `cookie-parser`; `oidc-provider` (mock issuer); React 18, Vite, React Router, TanStack Query; plain CSS (no CSS framework); Vitest, Supertest, Playwright; Docker Compose; npm workspaces.
+
+**Ports (hexagonal):** `PaymentAdapter` (mock now) and `EmailAdapter` (mock now, stores to `email_outbox`). Real implementations (PayFast, SMTP) are Phase 2 and the SMTP one will need a retry mechanism.
+
+**Packages approved on 26 November 2026, installed when their slice starts:**
+- Image upload (Slice 1B): `multer` 2.x (multipart parsing) and `sharp` (re-encoding to strip location metadata). `busboy` is not used directly.
+- Offline mode (Slice 2): `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue lives in its own IndexedDB store, separate from the query cache.
+
+Docker Compose services: `postgres`, `migrate`, `api`, `analytics`, `mock-oidc`, `web`; volumes `pgdata` and `uploads` (mounted at `/uploads` in `api`). No `worker`, no `native`. New variables: `EMAIL_ADAPTER=mock`, `UPLOAD_DIR=/uploads`, `UPLOAD_MAX_BYTES=5242880`, `PUBLIC_BASE_URL`.
+
+---
+
+## 14. Security, privacy, retention
+No card data is stored, processed or transmitted. Customer accounts hold name and email; orders hold recipient name, phone, email and address. Addresses and contacts never appear in reports, search, logs or audit. Customers see only their own data. The mock email outbox holds email addresses and tracking links and is readable only by Owner/Admin. Uploaded photos are public product images stored on a local volume; backup of that volume is out of scope. The offline cache follows FR-07. Demo data is synthetic. Seed and reset scripts are destructive, guarded by `ALLOW_DESTRUCTIVE_SEED=true`, and use the owner database role. Backup, retention schedules and production hosting are out of scope; this is stated honestly in the README.
+
+---
+
+## 15. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Offline mode is the largest and riskiest scope | Isolated in its own slice; first candidate to descope; the other rules stay valid if it is cut |
+| Two devices dispatch the same order offline | First sync wins; second rejected and logged; warning text; only Owner/Admin may do it |
+| PII cached on a device | No phone or email; address only for permitted users; wiped on sign-out and after 12 hours; accepted by the Owner (D-01) |
+| One customer reads another's order | Isolation in the query itself, 404 for foreign orders, dedicated tests (scenario 31) |
+| Admin switches staff-mode on for themselves | Not possible: only the Owner switches it (D-16) |
+| Image upload attack surface | Content-signature check, 5 MB limit, server-generated names, `nosniff`, no execution from `/uploads` |
+| Phone photos leak location | Re-encoded with `sharp` (approved, D-20) |
+| Public tracking link in an email reaches a mail provider and browser history | Status-only token, `Referrer-Policy: no-referrer`, no address or phone in the email |
+| Mock payment or mock email mistaken for real | Mock routes exist only in mock mode; screens say "demo"; PayFast and SMTP are Phase 2 |
+| Address request left open blocks dispatch | Shown in Needs attention for Owner/Admin; decline or apply clears it |
+| A late address change wastes packing work | 4-hour window; Owner/Admin see how many steps will reset before applying |
+| Offline work recorded against an old address | `checklist_epoch` rejects it at sync |
+| Phone search used to look people up | Exact match only, permission required, rate limited, value never logged |
+| Staff misuse stock reports to block sales | Hold lasts 4 hours at most unless approved; every report is audited with the reporter |
+| Existing code written for Shopify | Migration `0003` pivots the schema; removed modules are deleted, not hidden |
+
+---
+
+## 16. Decisions and assumptions (approved at the Gate 1 review on 26 Nov 2026 unless marked otherwise)
+
+| ID | Decision (default) |
+|---|---|
+| D-01 | Offline cache may hold addresses for users with `order.address.read`; no phone or email; cleared on sign-out and after 12 hours |
+| D-02 | Delivery confirmation is online only |
+| D-03 | Only the Owner may switch the offline-dispatch override; Admin cannot |
+| D-04 | **Updated.** With the override on, only Owner and Admin may queue an offline dispatch; regular staff never can |
+| D-05 | Undoing step 1 returns the order from `PREPARING` to `PAID` |
+| D-06 | Refund applications are allowed on `DISPATCHED`, `DELIVERED` and paid-then-`CANCELLED` orders |
+| D-07 | Payment must equal the total exactly; partial or over-payment is rejected for manual handling |
+| D-08 | No stock counts; availability is one value (D-34) plus staff stock holds (FR-15) |
+| D-09 | Payment events are applied synchronously; no background worker or retry queue |
+| D-10 | `courier_name` is an optional free-text field |
+| D-11 | A fixed delivery charge from `system_settings`, default `0.00` |
+| D-12 | Offline-applied dispatches are timed to server sync time and counted separately in the report |
+| D-13 | **Updated.** Product management and photo upload are required (FR-01), not optional |
+| D-14 | Browsing the catalogue is public; sign-in is required to order and to see history |
+| D-15 | **Confirmed by the Owner.** Picker/packer does steps 1 to 2; inspector does steps 3 to 5, including step 4 (pack); full staff do all five |
+| D-16 | **Confirmed.** Only the Owner switches `admin_can_perform_staff_tasks`, online, with a required reason, audited. Owner is never restricted by the switch |
+| D-17 | Dispatch is refused while an address change request is open |
+| D-18 | Admin applies exactly the customer's proposed address or declines with a reason; no free-form edit |
+| D-19 | Confirmation email is best effort, mock outbox only, no automatic retry in Phase 1 |
+| D-20 | **Approved.** `multer` 2.x and `sharp`; photos are re-encoded to strip metadata; two controls (camera and gallery) replace a single `capture` input |
+| D-21 | Customer and staff roles cannot share an account |
+| D-22 | `sla_unstarted_hours` defaults to 24 |
+| D-23 | The generic `staff` role and `cap_address_update` are retired; demo staff users become `staff_full` |
+| D-24 | Report population: non-cancelled orders whose `payment_verified_at` or `dispatched_at` is in range; excluded = missing a timestamp or negative duration |
+| D-25 | Phone search: exact match on normalized digits, `order.address.read` required, online only, rate limited |
+| D-26 | Refunds keep the PRD statuses; an optional "paid outside OrderFlow" record is added; no customer submission |
+| D-27 | Address request names stay `OPEN`, `proposed_address`, `decision_reason`, `decided_by`, `decided_at`; `VOID` added. The time window is enforced from `orders.created_at`, so the request has no `expires_at` of its own (requests do not expire, D-36) |
+| D-28 | Fifth Needs attention group `STOCK_ISSUE` |
+| D-29 | All three staff profiles, Admin and Owner may report a product out of stock (`product.stock.report`) |
+| D-30 | Reports visible to Owner, Admin, and staff with `cap_report` |
+| D-31 | Weekly report buckets start on Monday, Karachi time |
+| D-32 | **Confirmed.** All three staff profiles hold `order.exception.record` |
+| D-33 | Slice 1 runs as three gated parts, 1A, 1B and 1C (`plan.md`) |
+| D-34 | `availability` (`AVAILABLE`, `HIDDEN`, `OUT_OF_STOCK`) replaces `is_available` |
+| D-35 | Orders carry `expected_total`; a mismatch returns `PRICE_CHANGED` |
+| D-36 | The address window limits submitting only; an open request stays open until decided |
+| D-37 | Orders with an open address request are hidden from staff queues and search, not only flagged |
+| D-38 | Stock holds expire by time, checked on read; no background job |
+
+---
+
+## 17. Document history
+
+| Version | Date | Change |
+|---|---|---|
+| 3.0 | Nov 2026 | Shopify and native edition |
+| 4.0 draft | 25 Nov 2026 | Unreviewed first pivot draft (withdrawn: see the audit report) |
+| 4.1 | 25 Nov 2026 | Standalone web edition, errors in the 4.0 draft corrected, all retained engineering guarantees restored |
+| 4.2 | 26 Nov 2026 | Customer sign-in and `/my-orders`; three staff profiles and Admin staff-mode toggle; product management and photo upload; `EmailAdapter` with mock outbox; wrong-address request flow and fourth Needs attention group; collapsible checklist; offline proactive lock and Owner/Admin-only offline dispatch |
+| 4.3 | 26 Nov 2026 | Gate 1 review: TA requirements, phone search, stock availability (FR-15), address window and checklist reset, checklist epoch, price-change check, wider payment issues, full report definition, paid-outside refund record, staff notes, Owner-only staff-mode, timestamp CHECKs, reporting views, package approvals, scenarios 45 to 68 |

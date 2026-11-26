@@ -1,5 +1,0 @@
-*.md
-PRD.md
-docs/
-node_modules/
-apps/api/prisma/migrations/

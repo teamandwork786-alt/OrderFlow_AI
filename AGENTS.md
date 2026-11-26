@@ -1,46 +1,47 @@
 # AGENTS.md: OrderFlow AI
 
-**Version:** 2.1 | **Date:** 23 November 2026 | **Aligned to:** PRD v3.0 and `docs/architecture.md` v2.1 | **Supersedes:** AGENTS.md v1.0
+**Version:** 4.3 | **Date:** 26 November 2026 | **Aligned to:** PRD v4.3 and `docs/architecture.md` v4.3 | **Supersedes:** AGENTS.md v4.2, v4.1, v2.1 and the unreviewed "v4.0" draft
 
-Instructions for any AI coding agent (Claude Code, Cursor, Codex, Antigravity or similar) working in this repository. Read this file fully, then the sections of `docs/architecture.md` that your task touches, before every task. Human developers treat it as the team's working agreement with the agent.
+Instructions for any AI coding agent (Claude Code, Cursor, Codex, Antigravity or similar) working in this repository. Read this file fully, then the parts of the PRD and `docs/architecture.md` your task touches, before every task. Human developers treat it as the team's working agreement with the agent.
 
 ---
 
 ## 1. Project in one paragraph
 
-OrderFlow AI is an internal order-operations system for Hannan's decoration-piece business. Staff see Shopify orders that are eligible (genuinely paid), prepare them through a five-step packing checklist, dispatch them once and safely, record delivery, track manual refund applications, and read an order timeline and two reports. It has a responsive web app, a native Expo app, one backend (API plus worker), a read-only analytics process and PostgreSQL. **Shopify is the source of truth for commerce, payment and fulfillment facts. OrderFlow is the source of truth for its own checklist, lifecycle, audit and refund-application data.** The guaranteed demo path uses a mock Shopify adapter and a mock OIDC issuer.
+OrderFlow AI is a standalone web system for Hannan's decoration-piece business in Pakistan. Customers sign in, order from OrderFlow's own storefront, and follow their own orders; payment is verified by a signed payment event (a mock adapter in the demo) or manually by an Owner/Admin; verified orders enter the staff queue, go through a five-step packing checklist worked by three staff profiles (steps 1 to 2, steps 3 to 5, or all five), are dispatched exactly once with a tracking number, and are marked delivered. A customer who gave a wrong address files a request within 4 hours that an Owner/Admin applies (resetting the checklist) or declines before dispatch. Staff can report a product out of stock, which holds it from new orders until an Owner/Admin decides. Admin/Owner manage products and upload photos. Refund applications are tracked by hand and no money moves. Two reports run in a separate read-only analytics service. Staff can view orders and work the checklist offline; dispatch offline is possible only for Owner/Admin and only when the Owner switches on an override. **OrderFlow is the source of truth for everything it stores.** There is no Shopify, no native app and no background worker.
 
 ---
 
 ## 2. Document precedence
 
-1. `PRD.md` v3.0
-2. `docs/architecture.md` (includes ADR-001 to ADR-009)
+1. `PRD.md` v4.3
+2. `docs/architecture.md` (ADR-010 to ADR-016 and the kept decisions)
 3. `api-spec/openapi.yaml`
 4. This file
 5. Everything else
 
-If two documents disagree, follow the higher one, **stop**, and write the conflict to `docs/proposed-changes.md` (reason, affected sections, options). Do not pick a side silently. Old ADR text about a standalone storefront, PayFast IPN/ITN checks or `payment_events` is superseded; never implement it.
+If two documents disagree, follow the higher one, **stop**, and write the conflict to `docs/proposed-changes.md` (reason, affected sections, options). Do not pick a side silently. Any text about Shopify, native apps, `DISPATCH_PENDING`, `webhook_inbox`, reconcile or the "no offline" rule is superseded; never implement it.
 
 ---
 
 ## 3. Scope
 
 ### 3.1 In scope
-Everything in PRD sections 4, 5 and 11, built in slices S0 to S6 (section 11 of this file).
+Everything in PRD sections 4, 5 and 10. The **vertical slices are defined by the human planner in `plan.md`**. Agents never invent, merge, split or reorder slices.
 
 ### 3.2 Out of scope: refuse and ask
 Do not start any of these without an explicit human instruction recorded in `plan.md`:
-- Customer-facing checkout, storefront work, social-media order import
-- Payment collection, bank-token verification, reconciliation, gateway refunds
-- Automated refunds, refund calculations, payment transfers, any Shopify refund or return mutation
-- Courier integration, courier accounts or apps, courier webhooks (there is no `courier/` directory)
-- Chatbots, customer-support queues or triage, generative-AI features
-- Editing prices, totals, line items or quantities
-- Offline mode, queued dispatch, local databases on any client
-- Multi-store or multi-tenant support, inventory, purchase orders
-- Production hosting, HA, backup certification
-- Partial dispatch, dispatch undo, delivery undo, any `REFUNDED` status
+- Shopify code, columns, routes, fixtures or wording; a native or Expo app
+- A live payment gateway (PayFast is Phase 2), card data of any kind, Cash on Delivery, partial or split payments
+- Automated refunds, refund calculations, payouts, transfers, any money movement, a `REFUNDED` status
+- Courier integration, courier accounts or webhooks
+- Inventory counts, stock reservation, discount codes, password handling inside OrderFlow, customer self-cancellation, customer-side refund submission, customer editing of an order after it is placed
+- Editing prices, totals, line items or quantities after an order exists
+- Dispatch undo, delivery undo, partial dispatch
+- Background workers, queues or retry daemons (including automatic email retry)
+- Free-form address editing by anyone; cloud object storage; a real SMTP adapter
+- Chatbots, support queues, generative-AI features
+- Multi-store or multi-tenant support; production hosting, HA, backup certification
 
 If a request touches this list, reply with what is out of scope and ask for explicit confirmation.
 
@@ -48,148 +49,203 @@ If a request touches this list, reply with what is out of scope and ask for expl
 
 ## 4. Technology and dependencies
 
-Fixed stack (architecture section 4): TypeScript strict; Node.js LTS; Express; Zod; PostgreSQL; Prisma; `jose`; `pino`; `oidc-provider` (mock issuer); React + Vite + React Router + TanStack Query; React Native + Expo + `expo-secure-store`; Vitest; Supertest; `jest-expo`; Playwright; Docker Compose; npm workspaces. Also approved: `helmet`, `cors`, `express-rate-limit`, `cookie-parser`, `pg` (analytics), `openapi-typescript`, `express-openapi-validator` (tests only).
+Fixed stack (architecture section 4): TypeScript strict; Node 22; Express; Zod; PostgreSQL 16; Prisma; `jose`; `pino`; `oidc-provider` (mock issuer); React 18 + Vite + React Router + TanStack Query; plain CSS; Vitest; Supertest; Playwright; Docker Compose; npm workspaces; ESLint 9; Prettier. Also approved: `helmet`, `cors`, `express-rate-limit`, `cookie-parser`, `pg` (analytics), `openapi-typescript`, `express-openapi-validator` (tests only), `tsx` (scripts and dev).
 
-**Dependency rule:** any package not listed above requires human approval before you add it. Your request must state purpose, alternatives considered, size and maintenance status. Never add a local-storage or database package to a client. Pin versions through the lockfile; no floating versions.
+**Not approved, do not use:** Tailwind or any CSS framework, React 19, any Expo or React Native package, any Shopify package, any queue or worker library.
+
+**Approved on 26 November 2026, to be installed only when their slice starts:**
+- Slice 1B: `multer` **2.x only** (never 1.x) and `sharp`. `busboy` is not approved as a direct dependency.
+- Slice 2: `vite-plugin-pwa`, `idb-keyval`, `@tanstack/react-query-persist-client`, `@tanstack/query-async-storage-persister`. The offline action queue uses its own IndexedDB store, never the persisted query cache.
+
+**Dependency rule:** any package not listed needs human approval first. Your request states purpose, alternatives considered, size and maintenance status. Pin versions through the lockfile.
 
 ---
 
 ## 5. Repository layout and file boundaries
 
-Layout is defined in architecture section 5. Do not invent top-level directories.
+Layout is architecture section 5. Do not invent top-level directories.
 
 | Area | You may edit | You must NOT edit |
 |---|---|---|
-| `apps/api/src/**`, `apps/analytics/**`, `apps/web/**`, `apps/native/**`, `apps/mock-oidc/**`, `packages/shared/**` | Yes, within your slice | Code outside your slice's scope (cross-slice changes need an approved plan) |
-| `apps/api/prisma/**` | Schema and migrations, per section 8 | Any already-merged migration file (add a new one instead) |
+| `apps/api/src/**`, `apps/analytics/**`, `apps/web/**`, `apps/mock-oidc/**`, `packages/shared/**` | Yes, within your slice | Code outside your slice's scope |
+| `apps/api/prisma/**` | Schema and new migrations (section 8) | Any already-merged migration file |
 | `api-spec/openapi.yaml` | Yes, before the endpoint code | n/a |
 | `fixtures/**`, `scripts/**` | Yes | n/a |
 | `docs/proposed-changes.md`, `docs/evidence/**` | Append only | Rewriting or deleting past entries |
 | `README.md`, `plan.md` | Only the parts your slice instructs | Plan decisions (Accept, Revise, Reject) are human-only |
-| `PRD.md`, `docs/architecture.md`, `docs/adr/**`, `AGENTS.md` | **Never** | All of them: read-only for agents |
+| `PRD.md`, `docs/architecture.md`, `docs/adr/**`, `AGENTS.md` | **Never** | Read-only for agents |
 | `.env`, any real secret | **Never** read, write or print | All |
 
-Module and layer boundaries are in architecture section 6. Hard rules:
-
+Module and layer rules (architecture section 6):
 1. Routes in `src/http/**` parse, validate, authenticate, authorize, call one service and format the response. No business rules, no Prisma.
 2. Cross-module access goes through the other module's `index.ts` only.
-3. **Only the `lifecycle` module writes** `orders.lifecycle_status`, `order_version`, `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`.
-4. **Only the `sync` module writes** Shopify snapshot columns, `order_items`, `eligibility_*` and `shopify_conflict_*`. It never writes lifecycle columns; it asks `lifecycle` to transition.
-5. Only `audit` inserts into `audit_events`. No UPDATE or DELETE on `audit_events` or `order_notes`, ever.
-6. Shopify types, payloads and GraphQL strings stay inside `apps/api/src/integrations/shopify/`. Domain code uses domain types.
-7. Clients never call Shopify and never touch the database. They only call the API.
-8. Mock Shopify state lives in the database tables `mock_shopify_orders` and `mock_controls`, never in process memory, because the API and worker are separate processes.
+3. **Only the `lifecycle` module writes** `lifecycle_status`, `order_version`, `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`, `cancelled_at`.
+4. Only `audit` inserts into `audit_events`, inside the caller's transaction. No UPDATE or DELETE on `audit_events`, `order_notes` or `order_address_revisions`, ever.
+5. Payment adapter code stays inside `apps/api/src/integrations/payment/` and email adapter code inside `apps/api/src/integrations/email/`. Domain code uses `ParsedPaymentEvent` and `OutgoingEmail`.
+6. Clients only call the API. They never touch the database. Only `apps/web/src/offline/**` may use IndexedDB.
+7. Mock payment routes exist only when `PAYMENT_ADAPTER=mock`.
+8. Services receive a transaction handle and never open nested transactions.
+9. **Customer reads live only in the `customers` module**, always filter `customer_user_id = actor` in the SQL, and return a dedicated DTO. Never reuse a staff query or staff DTO for a customer route.
+10. The order address column is written only by order creation and by applying an address change request. Nothing else may write it.
+11. File upload code lives only in the `products` module.
+12. Checklist step permission is decided only by `canPerformStep` in `packages/shared`; the API and the UI both call it.
+13. Every staff read of orders (list, search, detail) goes through `staffOrderScope(actor)`. Never write a second staff order query.
+14. Stock-hold logic lives only in the `stock` module; order creation asks it.
+15. The API `reports` module only checks `report.view` and forwards to analytics with the internal secret. Report SQL lives only in `apps/analytics`.
+16. `email_outbox` is inserted in exactly one place, inside the order transaction.
 
 ---
 
 ## 6. Non-negotiable behaviours
 
-Details live in `docs/architecture.md`; the section number is given. These are the rules agents break most often.
+Details live in the PRD and `docs/architecture.md`. These are the rules agents break most often.
 
-**Webhooks (10.1)**
-- HMAC is verified on the **raw body** with `crypto.timingSafeEqual`. The webhook route uses `express.raw`, never the JSON parser, and is mounted before the global JSON parser.
-- Deduplicate on `X-Shopify-Webhook-Id` through `INSERT ... ON CONFLICT DO NOTHING`. A delivery counts as done only when `status = PROCESSED`.
-- The receiver stores and acknowledges. All Shopify API calls happen in the worker.
-- The webhook body is never trusted alone: fetch current state from Shopify, and ignore data older than the stored `shopify_updated_at`.
-- Max 8 processing attempts, then `DEAD_LETTER`.
+**Order creation and customers (PRD FR-01)**
+- A session is required to create an order. Anonymous `POST /orders` returns 401. Customers need `customer.order.create`; manual orders need `orders.create`.
+- The client never supplies a price or total. The server reads product prices, builds the snapshot lines and computes the total with `Prisma.Decimal`.
+- Creation is rate limited per user. The public token is generated server-side, never logged, and goes to the customer only in the confirmation email; the status link shows no address or phone.
+- `/my/orders` returns only orders with `customer_user_id` equal to the signed-in user; a foreign or unknown order is 404. A customer account never holds a staff role and a staff account never holds `customer`.
+- First sign-in creates a `customer` only. Never auto-assign a staff role.
+- A customer edits the address only on the checkout form before submitting. After that there is no customer edit endpoint.
 
-**Eligibility (10.2)**
-- Eligibility is evaluated only on freshly fetched Shopify data, with exact decimal comparison. Transient errors never produce a permanent failure state such as `AMOUNT_MISMATCH`.
-- Fail closed: if unsure, the order stays out of the eligible queue.
+**Payment (FR-02, architecture 10.2 and 10.3)**
+- Verify the HMAC on the **raw body** with `crypto.timingSafeEqual`. The webhook route uses `express.raw`, mounted before the global JSON parser.
+- Deduplicate with `INSERT ... ON CONFLICT DO NOTHING` on `(provider, provider_event_id)`. A repeated event has no second effect.
+- Apply the event inside the request in one transaction. Amount must equal the total exactly (decimal compare) and currency must be `PKR`; otherwise store `REJECTED` with a reason and leave the order `PENDING_PAYMENT`.
+- Only a verified event or a user with `payment.confirm` can make an order `PAID`. Staff cannot. Staff never see `PENDING_PAYMENT` orders.
+- The payment adapter interface has no refund, payout or transfer method. Do not add one.
 
-**Dispatch (10.4, 10.5)**
-- Follow the ordered steps exactly: replay lookup, version check, local preconditions, live Shopify fetch, short transaction creating one `PENDING` attempt, adapter call **outside any transaction or lock**, outcome classification.
-- Only GraphQL `userErrors` or a 4xx validation answer counts as a definitive rejection. Anything else is unknown, so `PENDING_CONFIRMATION`.
-- Reconciliation never calls `createFulfillment`. Never retry creation blindly.
-- Same `request_id` and payload returns the attempt's current state. Same `request_id` with a different payload returns 409. Clients reuse the same `request_id` after a timeout.
-- Success is shown only after the API returns 200 or `dispatch-status` reports `SUCCEEDED`.
+**Dispatch (FR-06, architecture 10.5)**
+- One transaction: lock the order row `FOR UPDATE`, check `expected_version`, lifecycle `PREPARING`, five steps complete, no open address change request, tracking matches `^[A-Za-z0-9-]{6,30}$` after trimming, no succeeded dispatch yet; then insert the dispatch, set `dispatched_at` from the server clock, transition to `DISPATCHED`, bump the version, write the audit event.
+- Same `request_id` and payload returns the stored result; same `request_id` with a different payload returns 409.
+- There is no dispatch undo.
 
-**Lifecycle (9)**
-- Only transitions in the table in architecture 9.2 exist. Every transition and its audit event commit in one transaction.
-- `order_version` increments only where architecture 8.4 says so. Shopify snapshot refreshes never increment it.
-- `payment_verified_at`, `dispatched_at`, `delivered_at` are set once. Database triggers enforce this; your code must too.
+**Lifecycle**
+- Only the transitions in PRD section 6 exist. Every transition and its audit event commit in one transaction. The database trigger enforces the same graph; a test asserts the shared package graph and the trigger graph match.
+- `order_version` increments only on lifecycle transitions and address corrections.
+- `payment_verified_at`, `dispatched_at`, `delivered_at`, `delivered_by`, `order_number`, `public_token` are set once. Triggers enforce it; your code must too.
 
-**Delivery (10.6)** is permanent and idempotent. There is no reverse. Corrections are `order_notes`.
+**Checklist (FR-05):** strictly in order, undo only the latest step, undo of step 1 returns the order to `PAID`, read-only after dispatch. Order and permission are enforced under the row lock.
+- Steps 1 to 2 need `checklist.steps_1_2` (`staff_picker_packer`, `staff_full`, Owner). Steps 3 to 5 need `checklist.steps_3_5` (`staff_inspector`, `staff_full`, Owner). Undo needs permission for the step being undone. A refusal is `STEP_NOT_PERMITTED`.
+- Admin holds those keys only while `system_settings.admin_can_perform_staff_tasks` is true (default false). **Only the Owner** changes it, online, with a reason, audited. Do not create an Admin role variant to bypass this.
+- Every checklist action carries `checklist_epoch`; a mismatch is `CHECKLIST_RESET`. While an address request is open, every checklist action is `ADDRESS_REQUEST_PENDING`.
+- Show live progress "N of 5 complete" in the checklist header and the queue row.
+- The checklist screen is one Checklist section with five numbered collapsible steps; only the next open step is actionable; only the latest completed step shows Undo.
 
-**Refunds (10.8)** are manual records only. The Shopify adapter interface has no refund, return, order-edit or payment method; do not add one. The UI label "Manual refund application tracking. No payment is issued by OrderFlow." is mandatory on every refund screen. A refund seen in Shopify after dispatch updates the snapshot only; it is not a post-dispatch conflict.
+**Address change requests (FR-04)**
+- A customer submits a proposed address for an own pre-dispatch order; one open request per order. Submitting sets `has_pending_address_request` through the database trigger, never in application code, and audits without the address.
+- Requests are accepted only within `address_change_window_hours` (default 4) of order creation and before dispatch; the database trigger checks it too. The window limits submitting only.
+- While a request is open the order is hidden from staff queues and search (through `staffOrderScope`), not only flagged.
+- Owner/Admin (`order.address.update`) may only apply the request exactly as proposed, or decline it with a reason. The previous address goes to `order_address_revisions`. Applying bumps `order_version`; if any step was done it also resets all five steps, moves `PREPARING` to `PAID`, increases `checklist_epoch` and audits `CHECKLIST_RESET`. The `order_number` never changes. Declining leaves the checklist untouched.
+- Cancelling an order sets its open request to `VOID`.
+- Dispatch is refused with `ADDRESS_REQUEST_PENDING` while a request is open, online and at offline sync.
+- The Needs attention groups are exactly `PAYMENT_ISSUE`, `OFFLINE_CONFLICT`, `SLA_OVERDUE`, `ADDRESS_CHANGE_REQUEST`, `STOCK_ISSUE`. `PAYMENT_ISSUE` includes unreviewed payments for orders that were not payable.
+
+**Product photos (FR-01)**
+- Only `products.manage` may upload. Multipart only on `POST /admin/products/:id/images`; every JSON route keeps the 100 KB limit and it is never raised.
+- Max 5 MB per image, 5 files per request, 10 active images per product. Accept JPEG, PNG and WebP by leading bytes only; ignore the declared type and the uploaded name. File names are server UUIDs; build paths only from them.
+- Serve read only with `X-Content-Type-Options: nosniff`. Never delete files or rows; deactivate instead. Remove a file written if the database insert fails.
+- The upload screen has two controls (camera with `capture`, gallery with `multiple`).
+
+**Email (FR-01)**
+- Send the confirmation after the order commits, through `EmailAdapter`. The body holds the order number, the tracking link and the recipient name only: never an address, phone or price. A failure never fails the order and is audited. No automatic retry. Mock mode stores to `email_outbox`, readable only with `system.manage`.
+
+
+
+**Delivery and cancel (FR-08, FR-09):** delivery is permanent and idempotent; cancel needs a reason and is refused after dispatch.
+
+**Offline (FR-07, architecture 10.8)**
+- Offline is for staff, Admin and Owner. It allows viewing cached orders and queuing checklist actions the user's profile permits. Nothing else, except dispatch under the override rule below.
+- **Proactive lock:** while offline the Dispatch button is disabled before any click. When the 5th checklist step is completed on an offline device (or an order with five complete steps is open while offline) show above the disabled button exactly: "Offline — No dispatch available at the moment. Hold parcel until internet is restored."
+- **Offline dispatch is allowed only for Owner and Admin, and only while `allow_offline_dispatch_override` is true.** Regular staff, including staff with `cap_dispatch`, never dispatch offline; they can dispatch online. The server enforces this at sync time: the actor must currently be Owner or Admin and the override must be on at that moment, and the server ignores any client claim or queue content.
+- Only `settings.owner` (the Owner role) changes the override and `admin_can_perform_staff_tasks`, only online, with a reason, with an audit event. Admin cannot change either.
+- Queue items carry the `checklist_epoch` they were made under and live in their own IndexedDB store.
+- Server timestamps for offline work are the sync time. `client_occurred_at` is informational only and never used for set-once columns.
+- The device cache never holds phone or email; address only for users with `order.address.read`; it is cleared on sign-out and after 12 hours; the service worker caches the app shell only, never API responses.
+- A rejected offline item is returned to the user, written as `OFFLINE_ACTION_REJECTED` and listed under Admin & Health.
+
+**Search (FR-03, TA Req #1)**
+- Search fields: order number, customer name, tracking number, and phone as an **exact** match on `phone_normalized` only for users with `order.address.read`, online, rate limited. Never log the typed phone. Never search by address or email. Authorization is applied in the query before search.
+
+**Stock holds (FR-15)**
+- A hold is active only if the request is `PENDING` and `expires_at > now()`, evaluated when reading. Never add a timer, cron or worker to expire holds. A held or `OUT_OF_STOCK` product stays listed and is refused by `POST /orders` with `PRODUCT_UNAVAILABLE`. Report locks the product `FOR UPDATE`; order creation reads products `FOR SHARE`.
+
+**Order price consent (FR-01)**
+- `expected_total` is compared with the server total; a mismatch is 409 `PRICE_CHANGED`. It is never used as a price.
+
+**Reports (FR-12, TA Req #3)**
+- Use only server timestamps. Population, included and excluded sets exactly as architecture 10.9; always return `excluded_missing_timestamps_count` with its breakdown, even when 0. Karachi day boundaries, half-open ranges, Monday weeks.
+- `apps/analytics` publishes no host port, checks the internal secret in constant time, connects as `orderflow_ro`, and reads only the reporting views.
+
+**Refunds (FR-11)** are manual records only. The optional paid-outside record is set once, only after `APPROVED_MANUALLY`, at most the order total, and is always labelled "Recorded as paid outside OrderFlow". The mandatory label on every refund screen is "Manual refund application tracking. No payment is issued by OrderFlow."
 
 **Money and time**
-- Money is `NUMERIC(12,2)` and `Prisma.Decimal`; amounts in JSON are decimal strings. Never use `number`, `parseFloat` or float arithmetic for money.
-- Store UTC `TIMESTAMPTZ`. Timestamps OrderFlow creates come from the server clock, never the client. Report dates are interpreted in `Asia/Karachi`.
+- Money is `NUMERIC(12,2)` and `Prisma.Decimal`; JSON amounts are decimal strings. Never `number`, `parseFloat` or float arithmetic for money.
+- Store UTC `TIMESTAMPTZ`. Timestamps OrderFlow creates come from the server clock, never the client. Report days are `Asia/Karachi`.
 
-**Outage (10.10)** blocks dispatch only. Checklist, address override, delivery, notes and refund applications continue on the stored snapshot, visibly labelled stale after 15 minutes.
+**Audit and PII:** audit `details` use a per-event-type Zod allowlist; unknown keys are rejected. An address change audit records only the fact of the change. Previous addresses go in `order_address_revisions`.
 
 ---
 
 ## 7. Coding conventions
 
 - TypeScript `strict: true`. No `any`, no `@ts-ignore`, no non-null `!` without a comment explaining why it is safe.
-- Validate every external input with Zod at the boundary (HTTP bodies and queries, webhook headers, environment variables, adapter responses). Schemas shared with clients live in `packages/shared`.
-- Errors: throw typed domain errors (`DomainError` with a stable `code`). One error mapper in `src/http/` converts them to the JSON error body. Never leak stack traces, SQL or Shopify details to clients. Never swallow an error silently.
-- Naming: files `kebab-case.ts`; types `PascalCase`; functions and variables `camelCase`; constants and enum values `UPPER_SNAKE_CASE`; DB columns `snake_case`; permission keys exactly as in architecture section 12; API paths exactly as in the PRD and OpenAPI.
-- Functions do one thing; keep files under about 300 lines; no circular imports between modules.
-- No `console.log`. Use the `pino` logger with correlation IDs. Never log request bodies, webhook payloads, addresses, names, emails, phone numbers, tokens or secrets.
-- No placeholders: no `TODO`, `FIXME`, stub functions, fake data in production code or `throw new Error("not implemented")`. If something cannot be finished, say so in your report instead of leaving a stub.
-- Configuration comes from the typed config module reading environment variables. No hard-coded URLs, shop domains, secrets or thresholds.
-- Clients follow MVC (architecture 7): views contain no fetch calls and no business rules. Every server-dependent screen handles `synchronized`, `pending-confirmation`, `failed` and stale or unavailable states, shows status with text as well as colour, and uses touch targets suitable for mobile.
-- Tests live beside the code (`*.test.ts`) or in `tests/`; fixtures live in `fixtures/`.
+- Validate every external input with Zod at the boundary (HTTP bodies and queries, payment headers, environment variables, adapter output). Shared schemas live in `packages/shared`.
+- Errors: typed `DomainError` with a stable `code`; one error mapper in `src/http/` produces the JSON error body. Never leak stack traces or SQL. Never swallow an error silently.
+- Naming: files `kebab-case.ts`; types `PascalCase`; functions and variables `camelCase`; constants and enum values `UPPER_SNAKE_CASE`; DB columns `snake_case`; permission keys and API paths exactly as in the PRD and OpenAPI.
+- Functions do one thing; keep files under about 300 lines; no circular imports.
+- No `console.log` in application code. Use `pino` with correlation ids. Never log request bodies, payment events, addresses, names, emails, phone numbers, tokens or secrets. Scripts may print status lines.
+- No placeholders: no `TODO`, `FIXME`, stub functions, fake data in production code or `throw new Error("not implemented")`. If something cannot be finished, say so in your report.
+- Configuration comes from the typed config module. No hard-coded URLs, secrets or thresholds.
+- Clients follow MVC (architecture 7): views contain no fetch calls and no business rules. Every server-dependent screen handles loading, synchronized, queued-offline, failed and stale states, shows status with text as well as colour, and works on a tablet or phone.
+- Tests live beside the code (`*.test.ts`) or in `tests/`; fixtures in `fixtures/`.
 
 ---
 
 ## 8. API and database change protocol
 
 1. **API first:** change `api-spec/openapi.yaml`, get it approved, then write the endpoint. Regenerate shared types. Contract tests must pass.
-2. Endpoints, status codes and error body follow architecture section 13. Errors carry a machine-readable `code`, a human message and a `correlation_id`.
-3. **Database:** change `prisma/schema.prisma`, then create a migration. Constraints Prisma cannot express (partial unique indexes, triggers, grants, column-level privileges) go in custom SQL inside the same migration. Migrations are committed and reproducible. Never edit a merged migration.
-4. Never weaken a constraint listed in architecture 8.3 or a grant in 8.5.
-5. Seed and reset scripts are destructive. They run only with `ALLOW_DESTRUCTIVE_SEED=true`, print their effect first, and refuse when `SHOPIFY_ADAPTER=real`. Never run them automatically. They connect as `orderflow_owner`; never grant the app role DELETE or TRUNCATE.
+2. Errors carry a machine-readable `code`, a human message and a `correlation_id` (architecture 13).
+3. **Database:** change `prisma/schema.prisma`, then create a migration. Constraints Prisma cannot express (triggers, partial unique indexes, grants) go in custom SQL in the same migration. Migrations are committed and reproducible. Never edit a merged migration; never run `prisma db push`.
+4. Never weaken a constraint, trigger or grant listed in architecture 8.3 and 8.5.
+5. Migration `0003_standalone_pivot` drops tables and columns that hold demo data. It needs explicit human approval before merge.
+6. Seed and reset scripts are destructive. They run only with `ALLOW_DESTRUCTIVE_SEED=true`, print their effect first, and connect with `DATABASE_URL_OWNER`. Never run them automatically. Never grant the app role DELETE or TRUNCATE.
+7. Compose must set database URLs per service; a shared `.env` value must never override a container's database host.
 
 ---
 
 ## 9. Security rules
 
-- Secrets only in environment variables. Provide `.env.example` with placeholders. Never commit a secret or bundle one into a client.
-- Webhooks: HTTPS in real deployments, HMAC on raw body, shop-domain allowlist, deduplication, rate limiting, fail closed.
-- Authorization is enforced in the API layer for every protected route. Hiding a button is not authorization. Every new endpoint needs a permission key and a test per role.
-- Only `owner` may grant or revoke the `owner` role, enforced in the service.
-- Tokens: `expo-secure-store` on native, secure HTTP-only cookie on web. Never `localStorage` for tokens.
-- Zero PII or secrets in application logs and `audit_events`. Audit `details` use the per-event-type Zod allowlist; unknown keys are rejected.
-- Customer addresses and contact data appear only in the protected order record, returned only to users with `order.address.read`, and never in broad reports or search matching.
-- The analytics process connects with `orderflow_ro` only and accepts calls only with the internal service secret.
-- OrderFlow never stores, processes or transmits card data. Never invent credentials, shop domains or tokens. Tests never call a real Shopify store or identity provider.
+- Secrets only in environment variables; `.env.example` has placeholders only. Never commit a secret.
+- Authorization is enforced in the API for every protected route. Every new endpoint needs a permission key and a test per role.
+- Only the Owner role may grant or revoke the Owner role, and only the Owner role may change the offline-dispatch override. Both are enforced in the service. Customer isolation is enforced in the SQL, not only in the route.
+- Sessions (all roles, customers included): secure HTTP-only cookie plus CSRF token on writes. Never `localStorage` for tokens.
+- Unauthenticated routes are only `/health`, the product list, product photos, the token status link and the payment webhook. They are rate limited and size limited, and fail closed. Order creation is authenticated and rate limited per user.
+- Zero PII or secrets in logs and audit. Customer contact data appears only in the order record, address request and revision tables, the confirmation email's recipient field, and (address only) the permitted offline cache; never in reports, search or logs.
+- Uploaded files are untrusted: check content by leading bytes, limit size, name them yourself, serve with `nosniff`, never execute or list them.
+- The analytics process connects as `orderflow_ro` only, reads only reporting views, accepts calls only with the internal service secret, and publishes no host port. Only the API calls it, after checking `report.view`.
+- OrderFlow never stores, processes or transmits card data. Never invent credentials. Tests never call a real payment provider or identity provider.
 
 ---
 
 ## 10. Testing and quality gates
 
-**Per slice:** unit tests for domain rules and validators; integration tests for repositories, endpoints and adapter behaviour (Vitest, Supertest, real PostgreSQL in Docker); E2E smoke where the slice adds a principal workflow (Playwright for web; Expo critical-path tests for native). Use equivalence and boundary tests where meaningful, in particular tracking number lengths 5, 6, 30, 31 and invalid punctuation, report date ranges, amounts, and `order_version`.
+**Per slice:** unit tests for domain rules; integration tests for repositories and endpoints (Vitest, Supertest, real PostgreSQL in Docker); **SQL constraint tests** for every trigger, unique index, CHECK and grant (the existing suite is adapted and extended); E2E smoke where the slice adds a principal workflow (Playwright). Use boundary tests: tracking length 5, 6, 30, 31 and bad punctuation; amounts; report date ranges; `order_version`.
 
-**Mandatory scenarios** are PRD section 15.2, items 1 to 25. Each slice owns the ones in its scope and must have them passing before Accept. In addition, always include: duplicate webhook produces no second effect; invalid HMAC rejected; failed processing retries and reaches dead letter; older Shopify data cannot overwrite newer; transient Shopify error never produces a permanent failure; duplicate and conflicting `request_id`; stale version; timeout then reconciliation with no duplicate fulfillment; delivery twice; role denial per endpoint; analytics role cannot write; no PII in logs or audit.
+**Mandatory scenarios** are PRD section 12 items 1 to 68. Each scenario has exactly one owning slice in `plan.md`. Each slice owns those in its scope and must have them passing before Accept.
 
-**Quality gates** (PRD 15.3): 1 scope and plan; 2 design and tests; 3 implementation works end to end in mock mode; 4 verification (tests and slice-appropriate security and performance checks pass, evidence recorded); 5 acceptance (reviewer confirms requirements, docs, demo path, known limitations). A slice is not complete because code exists; it is complete when criteria and evidence are recorded.
+**Quality gates:** 1 scope and plan; 2 design and tests; 3 implementation works end to end in mock mode; 4 verification (tests and slice-appropriate security and performance checks pass, evidence recorded); 5 acceptance (reviewer confirms requirements, docs, demo path, known limitations). A slice is complete only when criteria and evidence are recorded.
 
-**Evidence:** append real results to `docs/evidence/test-evidence.md` (command, date, result) and the session summary to `docs/evidence/workflow-log.md`. Never fabricate a test result, a gate result or an acceptance decision.
+**Evidence:** append real results to `docs/evidence/test-evidence.md` (command, date, result) and the session summary to `docs/evidence/workflow-log.md`. Never fabricate a test result, a gate result or an acceptance decision. State plainly what was and was not verified.
 
-**Performance:** with 100 seeded active orders, list API p95 under 1 second locally and initial list UI under 3 seconds. Record environment details with the measurement.
+**Performance:** with 100 seeded active orders, queue API p95 under 1 second locally and initial queue render under 3 seconds. Record environment details.
 
 ---
 
 ## 11. Workflow
 
 ### 11.1 Slices
-The unit of work is one vertical slice, not one module. A slice cuts through UI, API, domain logic, persistence and tests.
-
-| Slice | Scope |
-|---|---|
-| S0 Foundation | Monorepo, Docker Compose, PostgreSQL, Prisma migrations and seed, API shell and `/health`, web and native shells, mock OIDC, RBAC foundation, CI and test setup |
-| S1 Ingestion and eligible list | Adapter interface, mock adapter, real adapter foundation, webhook inbox, HMAC, worker, reconciliation, eligibility, order list and search |
-| S2 Details and checklist | Order detail, address, items, five-step checklist, sequential complete and undo, timeline foundation |
-| S3 Safe dispatch | Tracking validation, confirmation, idempotent request, attempt guard, fulfillment call, timeout reconciliation, notification config |
-| S4 Delivery and conflicts | Permanent delivery, note, set-once timestamps, post-dispatch conflict flag and review |
-| S5 Reports and refunds | Refund applications, review, applicant report, dispatch report, analytics boundary |
-| S6 Hardening and demo | Security and performance tests, E2E smoke, failure fixtures, accessibility pass, README, OpenAPI, evidence, demo script |
-
-A new slice may be added only by the human planner when a cohesive requirement cannot fit an existing one.
+Defined by the human planner in `plan.md`. Each slice cuts through UI, API, domain logic, persistence and tests. A new slice may be added only by the human planner.
 
 ### 11.2 Slice loop
 1. Ibrahim records scope and acceptance criteria.
@@ -200,30 +256,28 @@ A new slice may be added only by the human planner when a cohesive requirement c
 6. Ahmed runs the quality gates and logs evidence.
 7. Ibrahim records Accept, Revise or Reject and updates `plan.md`.
 
-Ownership: Ibrahim, planning, process and client UI; Ihtesham, architecture, documentation, Docker and scaffold, mock adapter, webhook simulator, analytics; Taha, backend; Ahmed, QA. Each deliverable has one accountable owner. Do not touch work owned by another person without it being part of the approved slice plan.
+Ownership: Ibrahim, planning, process and client UI; Ihtesham, architecture, documentation, Docker, scaffold, mock payment adapter, simulator and analytics; Taha, backend; Ahmed, QA. Each deliverable has one accountable owner. Do not touch another person's work outside the approved slice plan.
 
 ### 11.3 HITL and AFK
-Each slice records its mode and the reason in `plan.md`. If no mode is recorded, use **HITL**.
+Each slice records its mode and reason in `plan.md`. If none is recorded, use **HITL**.
+- **HITL (mandatory for authentication and customer data isolation, payment verification, dispatch behaviour, the offline override, file upload, address-change reset, stock holds, reports):** present a short plan (goal, files, interfaces, tests, risks), **wait for approval**, implement, then present a summary and test results and **wait for review before merge**.
+- **AFK (allowed for scaffolding, UI screens, fixtures, tests, report UI):** implement from the recorded scope, then present for review. No merge without review.
 
-- **HITL (mandatory for authentication, payment eligibility, dispatch behaviour):** present a short plan (goal, files, interfaces, tests, risks), **wait for approval**, implement, then present a summary and test results and **wait for review before merge**.
-- **AFK (allowed for scaffolding, UI screens, fixtures, tests, report UI):** implement from the recorded scope without waiting, then present the result for review. No merge without review.
+Human tasks (installing tools, approving packages, running Docker, manual UI checks, accounts, secrets, recording decisions) belong to the human. List them at the end of each slice; do not do them for the human and do not mark them done.
 
 ### 11.4 Git
-- One branch per slice (`slice/s1-ingestion`); small, focused commits with clear messages.
-- No direct commits to `main`. Open a pull request; a human reviews and merges.
-- No force pushes, no history rewriting, no deleting branches you did not create.
-- `plan.md` is the single master plan; changes are appended to its dated change log. Do not create competing plans.
+One branch per slice (`slice/<id>-<name>`); small focused commits; no direct commits to `main`; pull request reviewed and merged by a human; no force pushes or history rewriting; `plan.md` is the single master plan with an append-only change log.
 
 ### 11.5 UI
-For each slice's screens, propose wireframes first and wait for approval recorded in `plan.md`, then code the UI. Screens: order list, order detail with checklist, dispatch confirmation, delivery, refund application and review, reports, admin (users, integration health).
+Propose wireframes first for each slice's screens and wait for approval recorded in `plan.md`. Screens: storefront (shop, sign-in, cart, checkout, pay, my orders, Help / Report Wrong Address, track); staff Orders split pane with the Needs attention groups and the numbered Checklist; Refund Applications; Reports; Admin & Health (users, products and photo upload, settings, email outbox, status, offline sync issues, demo tools in mock mode). Staff navigation has exactly four items.
 
-The dispatch confirmation text is fixed: "Dispatch order #[order number]? This will create/confirm the Shopify fulfillment and cannot be undone in OrderFlow. Verify the parcel and tracking number before continuing."
+Dispatch confirmation text (fixed): "Dispatch order #[order number]? This records the parcel as handed to the courier and cannot be undone in OrderFlow. Verify the parcel and tracking number before continuing."
 
 ---
 
 ## 12. Commands
 
-These scripts must exist from S0. Use exactly these names; do not invent alternatives.
+These scripts must exist. Use exactly these names.
 
 | Task | Command |
 |---|---|
@@ -233,15 +287,13 @@ These scripts must exist from S0. Use exactly these names; do not invent alterna
 | Migrate | `npm run db:migrate` |
 | Seed demo data (destructive, guarded) | `npm run db:seed` |
 | Reset demo data (destructive, guarded) | `npm run db:reset` |
-| Simulate signed webhook | `npm run webhook:simulate -- --topic orders/paid --fixture <name>` |
-| Flip a mock scenario (outage, timeout) | `npm run mock:scenario -- --set <scenario>=<on\|off>` |
+| Simulate a payment event | `npm run payment:simulate -- --fixture <valid\|tampered\|mismatch\|wrong-currency\|duplicate> --order <OF-000001>` |
 | Unit and integration tests | `npm test` |
+| SQL constraint tests | `npm run test:sql` |
 | Web E2E | `npm run test:e2e` |
 | Lint | `npm run lint` |
 | Type check | `npm run typecheck` |
 | Format check | `npm run format:check` |
-| Start native app | `npm run native:start` |
-| Switch adapter | set `SHOPIFY_ADAPTER=mock` or `real` in `.env`, restart `api` and `worker` |
 
 Before opening a pull request, `npm run lint`, `npm run typecheck`, `npm run format:check` and `npm test` must pass.
 
@@ -250,16 +302,15 @@ Before opening a pull request, `npm run lint`, `npm run typecheck`, `npm run for
 ## 13. When to stop and ask
 
 Stop, state what you know, what you assume and the options (two or three, with a recommendation), and wait, when:
-
-- A task would change a locked decision (D-01 to D-05), an ADR, the PRD or this file
+- A task would change a locked decision (L-01 to L-14), an ADR, the PRD or this file
 - Two documents conflict, or a requirement is ambiguous in a way that changes behaviour
 - You need a dependency outside section 4
 - You need to touch code outside your slice
-- The work would hit the out-of-scope list in section 3.2
+- The work would hit the out-of-scope list (section 3.2)
 - A migration would alter existing data or weaken a constraint
 - You are about to take any destructive or irreversible action
 
-Do not stop for minor details that are cheap to change: take the safer option, say which one, and continue. Write any documentation concern to `docs/proposed-changes.md`.
+Do not stop for minor details that are cheap to change: take the safer option, say which one, and continue. Write documentation concerns to `docs/proposed-changes.md`.
 
 ---
 
@@ -268,11 +319,12 @@ Do not stop for minor details that are cheap to change: take the safer option, s
 - [ ] Plan or scope recorded; mode (HITL or AFK) recorded
 - [ ] OpenAPI updated first if any endpoint changed
 - [ ] Code stays within module and file boundaries (sections 5 and 7)
-- [ ] Tests for the slice's mandatory scenarios written and passing
+- [ ] Tests for the slice's mandatory scenarios written and passing, including SQL tests for any new constraint
 - [ ] Lint, type check and format check clean
 - [ ] No secrets, no PII in logs or audit, no out-of-scope features, no placeholders
 - [ ] Migrations committed and reproducible
-- [ ] Evidence appended; documentation concerns recorded in `docs/proposed-changes.md`
+- [ ] Evidence appended; documentation concerns recorded
+- [ ] Human tasks listed for the human
 - [ ] Pull request opened from the slice branch
 - [ ] Human has recorded Accept, Revise or Reject
 
@@ -282,6 +334,9 @@ Do not stop for minor details that are cheap to change: take the safer option, s
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | Nov 2026 | Module-based rules, four-step checklist, Phase 1 and Phase 2 split (superseded) |
-| 2.1 | 23 Nov 2026 | Self-audit fixes: approved dependency additions, route order, replay rule, mock state in database, owner role for reset, mock scenario command |
-| 2.0 | 23 Nov 2026 | Aligned to PRD v3.0: vertical slices, five-step checklist, fixed stack and dependency list, file boundaries, coding conventions, commands, HITL and AFK rules, refund and dispatch rules, courier and support removed |
+| 1.0 | Nov 2026 | Module-based rules (superseded) |
+| 2.1 | 23 Nov 2026 | Shopify and native edition, self-audit fixes |
+| 4.0 draft | 25 Nov 2026 | Unreviewed pivot draft (withdrawn: lost most rules) |
+| 4.1 | 25 Nov 2026 | Standalone web edition: all v2.1 rules kept where they still apply, Shopify and native removed, payment, offline and override rules added |
+| 4.2 | 26 Nov 2026 | Customer accounts and isolation rules; step-level staff profiles and Admin staff-mode; address request rules; product photo and email rules; offline proactive lock and Owner/Admin-only offline dispatch; new pending packages |
+| 4.3 | 26 Nov 2026 | Gate 1 review: package approvals recorded, search and staff scope rules, checklist epoch and address reset, stock-hold rules without jobs, price consent, report and analytics rules, single-insert email outbox, Owner-only staff-mode, five Needs attention groups, scenarios 1 to 68 |
