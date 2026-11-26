@@ -457,11 +457,11 @@ Install only when the slice starts; pin through the lockfile.
 ## 9. Gate 1 sign-off (human only)
 
 **Gate 1 checks:**
-- [ ] PRD v4.4, architecture v4.4 and AGENTS.md v4.4 read and accepted
-- [ ] Slice scopes and order (15 slices) accepted
-- [ ] Scenario ownership (5.3) accepted
-- [ ] Migration plan (section 6) accepted
-- [ ] Slice 1 test cases (`docs/evidence`, once created in 1A) accepted
+- [x] PRD v4.4, architecture v4.4 and AGENTS.md v4.4 read and accepted
+- [x] Slice scopes and order (15 slices) accepted
+- [x] Scenario ownership (5.3) accepted
+- [x] Migration plan (section 6) accepted
+- [x] Slice 1 test cases (`docs/evidence`, once created in 1A) accepted
 
 Each slice is signed off by the one person accountable for it (section 1). The first row is the sign-off of the plan as a whole.
 
