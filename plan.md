@@ -471,7 +471,7 @@ Each slice is signed off by the one person accountable for it (section 1). The f
 |---|---|---|---|---|
 | Whole plan (Gate 1) | Ibrahim (Overall Process Lead) | Accept | 2026-11-27 | Gate 1 approved; Slice 1A addendum approved for clean email/password login, custom registration passwords, and simulated Google/Apple OIDC customer identities. |
 | 1A | Ibrahim | Accept | 2026-11-27 | Slice 1A scope and email/password + simulated Google/Apple OIDC addendum approved to proceed. |
-| 1B | Ibrahim | | | |
+| 1B | Ibrahim | Accept | 2026-11-27 | Slice 1B scope approved to proceed with Formrest-inspired storefront UI aligned to PRD v4.4 and migration 0002_orders. |
 | 1C | Ibrahim | | | |
 | 1D | Ihtesham | | | |
 | 1E | Ibrahim | | | |
@@ -490,9 +490,11 @@ Each slice is signed off by the one person accountable for it (section 1). The f
 
 ## 10. Slice decisions (human only)
 
+## 10. Slice decisions (human only)
+
 | Slice | Gate | Decision | Date | Reason | Evidence link |
 |---|---|---|---|---|---|
-| 1A | | | | | |
+| 1A | Gate 4 | Accept | 2026-11-27 | Slice 1A (`0001_identity`, mock OIDC with email/password + simulated Google/Apple customer sign-in, RBAC, append-only audit, and grants) verified and merged on `feat/customer-sign-in-modes` (`73be42d`). | `docs/evidence/test-evidence.md` |
 | 1B | | | | | |
 | 1C | | | | | |
 | 1D | | | | | |
