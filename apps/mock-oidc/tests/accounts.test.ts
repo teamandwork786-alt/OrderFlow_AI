@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   accountsForPortal,
   CreateAccountSchema,
+  accountForEmail,
   createPresetAccounts,
   hasAccountConflict,
   passwordMatches,
   parsePortal,
+  providerAccountForLoginHint,
   registerCustomerAccount,
   type MockAccount
 } from "../src/accounts.js";
@@ -60,18 +62,30 @@ describe("accounts offered per portal", () => {
     ).toBe(true);
   });
 
-  it("offers only customers, including newly created ones, to the customer portal", () => {
+  it("accepts only customers, including newly created ones, in the customer portal", () => {
     const names = accountsForPortal(allAccounts().values(), "customer").map(
       (account) => account.name
     );
-    expect(names).toEqual(["Customer A", "Customer B", "Newly Created"]);
+    expect(names).toEqual([
+      "Customer A",
+      "Customer B",
+      "Google Customer",
+      "Apple Customer",
+      "Newly Created"
+    ]);
   });
 
-  it("offers staff and the seeded customers, but not new customers, to the staff portal", () => {
+  it("accepts staff and seeded customers, but not new customers, in the staff portal", () => {
     const names = accountsForPortal(allAccounts().values(), "staff").map(
       (account) => account.name
     );
-    expect(names).toEqual([...staffNames, "Customer A", "Customer B"]);
+    expect(names).toEqual([
+      ...staffNames,
+      "Customer A",
+      "Customer B",
+      "Google Customer",
+      "Apple Customer"
+    ]);
   });
 
   it("rejects staff subjects for the customer portal", () => {
@@ -82,6 +96,48 @@ describe("accounts offered per portal", () => {
     expect(subjects).not.toContain("demo-admin");
     expect(subjects).not.toContain("demo-staff-full");
   });
+
+  it("finds seeded accounts by email without case sensitivity", () => {
+    const accounts = allAccounts();
+    expect(
+      accountForEmail(accounts.values(), "customer-a@example.com", "customer")
+        ?.subject
+    ).toBe("demo-customer-a");
+    expect(
+      accountForEmail(accounts.values(), "OWNER@example.com", "staff")?.subject
+    ).toBe("demo-owner");
+    expect(
+      accountForEmail(accounts.values(), "owner@example.com", "customer")
+    ).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "google",
+      "google-customer",
+      "Google Customer",
+      "google.customer@example.com"
+    ],
+    ["apple", "apple-customer", "Apple Customer", "apple.customer@example.com"]
+  ] as const)(
+    "provides the fixed %s customer identity for automatic OIDC login",
+    (provider, subject, name, email) => {
+      const account = providerAccountForLoginHint(
+        allAccounts().values(),
+        "customer",
+        provider
+      );
+      expect(account).toMatchObject({
+        subject,
+        name,
+        email,
+        kind: "customer"
+      });
+      expect(
+        providerAccountForLoginHint(allAccounts().values(), "staff", provider)
+      ).toBeUndefined();
+    }
+  );
 });
 
 describe("customer account registration", () => {
@@ -115,7 +171,7 @@ describe("customer account registration", () => {
       hasAccountConflict(accounts, "customer a", "other@example.test")
     ).toBe(true);
     expect(
-      hasAccountConflict(accounts, "Other Name", "CUSTOMER-A@example.test")
+      hasAccountConflict(accounts, "Other Name", "CUSTOMER-A@example.com")
     ).toBe(true);
     expect(
       hasAccountConflict(accounts, "Other Name", "fresh@example.test")
@@ -151,7 +207,6 @@ describe("login page", () => {
   const render = (portal: "customer" | "staff", mode?: "sign-in" | "sign-up") =>
     renderLoginPage({
       portal,
-      accounts: accountsForPortal(allAccounts().values(), portal),
       interactionUrl: "/interaction/abc",
       mode
     });
@@ -162,63 +217,62 @@ describe("login page", () => {
     expect(html).toContain("#faf8f5");
     expect(html).toContain("#b4532a");
     expect(html).toContain("Create a Customer Account");
-    expect(html).toContain('value="demo-customer-a"');
+    expect(html).toContain(
+      'type="email" name="email" autocomplete="email" required'
+    );
+    expect(html).not.toContain("<select");
+    expect(html).not.toContain("customer-a@example.com");
     for (const name of staffNames) expect(html).not.toContain(name);
     expect(html).not.toMatch(
       /owner|admin|staff|picker|inspector|operations|internal/i
     );
   });
 
-  it("shows only the demo sign-in form in customer sign-in mode", () => {
+  it("shows only email and password fields in customer sign-in mode", () => {
     const html = render("customer", "sign-in");
-    expect(html).toContain('id="account_id"');
-    expect(html).toContain('id="password"');
+    expect(html).toContain('<label for="email">Email</label>');
+    expect(html).toContain('id="email" type="email" name="email"');
+    expect(html).toContain('<label for="password">Password</label>');
     expect(html).not.toContain("Create a Customer Account");
     expect(html).not.toContain('id="new-name"');
+    expect(html).not.toContain("<select");
   });
 
   it("shows only the account-creation form in customer sign-up mode", () => {
     const html = render("customer", "sign-up");
     expect(html).toContain("Create a Customer Account");
-    expect(html).toContain('id="new-name"');
-    expect(html).toContain('id="new-email"');
-    expect(html).not.toContain('id="account_id"');
-    expect(html).not.toContain('id="password"');
+    expect(html).toContain('<label for="new-name">Full Name</label>');
+    expect(html).toContain('id="new-email" name="email" type="email"');
+    expect(html).toContain('minlength="6"');
+    expect(html).not.toContain("<select");
   });
 
-  it("keeps both customer forms visible when mode is omitted", () => {
+  it("shows email sign-in and sign-up forms when mode is omitted", () => {
     const html = render("customer");
-    expect(html).toContain('id="account_id"');
+    expect(html).toContain(
+      'type="email" name="email" autocomplete="email" required'
+    );
     expect(html).toContain('id="new-name"');
+    expect(html).not.toContain("<select");
   });
 
-  it("staff page is the internal sign-in, lists staff first and offers no sign-up", () => {
+  it("staff page uses email and password without customer sign-up", () => {
     const html = render("staff");
     expect(html).toContain("OrderFlow Operations — Internal Identity Sign-In");
-    for (const name of staffNames) expect(html).toContain(name);
-    expect(html).toContain("Customer A");
-    expect(html).not.toContain("Newly Created");
+    expect(html).toContain('id="email" type="email" name="email"');
     expect(html).not.toContain("Create a Customer Account");
     expect(html).not.toContain("create-account");
+    expect(html).not.toContain("<select");
   });
 
-  it("escapes account names", () => {
+  it("escapes untrusted error content", () => {
     const html = renderLoginPage({
       portal: "customer",
-      accounts: [
-        {
-          subject: "customer-x",
-          name: '<script>alert("x")</script>',
-          email: "x@example.test",
-          password: "custom-password",
-          kind: "customer",
-          preset: false
-        }
-      ],
-      interactionUrl: "/interaction/abc"
+      interactionUrl: "/interaction/abc",
+      error: '<script>alert("x")</script>'
     });
     expect(html).not.toContain("<script>alert");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
     expect(html).toContain('<label for="password">Password</label>');
     expect(html).toContain('<label for="new-password">Password</label>');
     expect(html).not.toContain("Demo password");

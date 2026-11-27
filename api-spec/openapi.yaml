@@ -37,9 +37,10 @@ paths:
         - in: query
           name: portal
           description: >-
-            Which sign-in portal started the request. It only changes which demo
-            accounts the identity provider offers. Access is always decided by
-            server-side permissions. Missing or unknown values mean customer.
+            Which sign-in portal started the request. It controls which customer
+            or staff identities the issuer may authenticate. Access is always
+            decided by server-side permissions. Missing or unknown values mean
+            customer.
           schema:
             type: string
             enum: [customer, staff]
@@ -53,6 +54,14 @@ paths:
           schema:
             type: string
             enum: [sign-in, sign-up]
+        - in: query
+          name: provider
+          description: >-
+            Selects a mock customer identity shortcut. It is valid only with
+            the customer portal and is forwarded to the issuer as login_hint.
+          schema:
+            type: string
+            enum: [google, apple]
       responses:
         "302":
           description: Redirect to the configured OpenID Connect issuer

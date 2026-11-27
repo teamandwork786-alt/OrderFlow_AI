@@ -137,6 +137,17 @@ describe("Slice 1A ID token verification", () => {
     }
   );
 
+  it.each(["google", "apple"] as const)(
+    "forwards %s as the OIDC login_hint",
+    async (provider) => {
+      const login = createPendingLogin("/", "customer", "sign-in", provider);
+      const url = await adapter.createAuthorizationUrl(login);
+      expect(url.searchParams.get("portal")).toBe("customer");
+      expect(url.searchParams.get("mode")).toBe("sign-in");
+      expect(url.searchParams.get("login_hint")).toBe(provider);
+    }
+  );
+
   it.each([
     ["expired", "expired"],
     ["wrong audience", "wrong-audience"],

@@ -19,6 +19,7 @@ interface TokenResponse {
 
 export type SignInPortal = "customer" | "staff";
 export type SignInMode = "sign-in" | "sign-up";
+export type SignInProvider = "google" | "apple";
 
 export interface OidcLoginRequest {
   state: string;
@@ -27,6 +28,7 @@ export interface OidcLoginRequest {
   returnTo: string;
   portal: SignInPortal;
   mode?: SignInMode;
+  provider?: SignInProvider;
 }
 
 export interface OidcPendingLogin extends OidcLoginRequest {
@@ -66,6 +68,7 @@ export class OidcIssuerAdapter {
       portal: request.portal
     });
     if (request.mode) params.set("mode", request.mode);
+    if (request.provider) params.set("login_hint", request.provider);
     url.search = params.toString();
     return url;
   }
@@ -209,7 +212,8 @@ function rebaseEndpoint(endpoint: string, internalOrigin: string): URL {
 export function createPendingLogin(
   returnTo: string,
   portal: SignInPortal = "customer",
-  mode?: SignInMode
+  mode?: SignInMode,
+  provider?: SignInProvider
 ): OidcPendingLogin {
   return {
     state: randomBytes(32).toString("base64url"),
@@ -218,6 +222,7 @@ export function createPendingLogin(
     returnTo,
     portal,
     ...(mode ? { mode } : {}),
+    ...(provider ? { provider } : {}),
     expiresAt: Date.now() + 5 * 60 * 1000
   };
 }

@@ -1,5 +1,6 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
+import { OidcIssuerAdapter } from "../src/modules/auth/oidc-adapter.js";
 import { createSessionForRole, expectAppAvailable } from "./support/runtime.js";
 
 const DEMO_ROLES = [
@@ -12,6 +13,44 @@ const DEMO_ROLES = [
 ] as const;
 
 describe("Slice 1A identity and session contract", () => {
+  it("allows mock identity providers only for the customer portal", async () => {
+    const createAuthorizationUrl = vi
+      .spyOn(OidcIssuerAdapter.prototype, "createAuthorizationUrl")
+      .mockResolvedValue(new URL("http://mock-oidc:4000/auth"));
+    try {
+      const app = await expectAppAvailable();
+      for (const provider of ["google", "apple"] as const) {
+        const allowed = await request(app)
+          .get("/api/v1/auth/oidc/sign-in")
+          .query({ portal: "customer", mode: "sign-in", provider });
+        expect(allowed.status).toBe(302);
+        expect(createAuthorizationUrl).toHaveBeenCalledWith(
+          expect.objectContaining({ portal: "customer", provider })
+        );
+
+        const denied = await request(app)
+          .get("/api/v1/auth/oidc/sign-in")
+          .query({ portal: "staff", mode: "sign-in", provider });
+        expect(denied.status).toBe(400);
+        expect(denied.body.error.code).toBe("INVALID_SIGN_IN_PROVIDER");
+      }
+
+      const missingPortal = await request(app)
+        .get("/api/v1/auth/oidc/sign-in")
+        .query({ provider: "google" });
+      expect(missingPortal.status).toBe(400);
+      expect(missingPortal.body.error.code).toBe("INVALID_SIGN_IN_PROVIDER");
+
+      const unknown = await request(app)
+        .get("/api/v1/auth/oidc/sign-in")
+        .query({ portal: "customer", provider: "untrusted" });
+      expect(unknown.status).toBe(400);
+      expect(unknown.body.error.code).toBe("VALIDATION_FAILED");
+    } finally {
+      createAuthorizationUrl.mockRestore();
+    }
+  });
+
   it("1A-01 signs in seeded demo roles, exposes their roles, and signs out", async () => {
     const app = await expectAppAvailable();
 

@@ -9,7 +9,12 @@ declare module "oidc-provider" {
       };
     };
     grantId?: string;
-    params: { client_id: string; portal?: unknown; mode?: unknown };
+    params: {
+      client_id: string;
+      portal?: unknown;
+      mode?: unknown;
+      login_hint?: unknown;
+    };
     session?: { accountId: string } | null;
   }
 

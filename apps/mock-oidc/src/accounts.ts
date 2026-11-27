@@ -19,7 +19,7 @@ export function parsePortal(value: unknown): Portal {
 }
 
 /**
- * Accounts a portal may offer and accept.
+ * Accounts a portal may authenticate.
  * Customer portal: customer accounts only. Staff portal: staff accounts plus
  * the seeded customers, so the access-denial path can be checked.
  */
@@ -36,7 +36,11 @@ export function accountsForPortal(
 
 export const CreateAccountSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  email: z.string().trim().pipe(z.email().max(320)),
+  email: z
+    .string()
+    .trim()
+    .pipe(z.email().max(320))
+    .transform((email) => email.toLowerCase()),
   password: z.string().min(6).max(200)
 });
 
@@ -87,6 +91,35 @@ export function passwordMatches(
   );
 }
 
+export function accountForEmail(
+  accounts: Iterable<MockAccount>,
+  email: string | undefined,
+  portal: Portal
+): MockAccount | undefined {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (!normalizedEmail) return undefined;
+  return accountsForPortal(accounts, portal).find(
+    (account) => account.email.toLowerCase() === normalizedEmail
+  );
+}
+
+export function providerAccountForLoginHint(
+  accounts: Iterable<MockAccount>,
+  portal: Portal,
+  loginHint: unknown
+): MockAccount | undefined {
+  if (portal !== "customer") return undefined;
+  const subject =
+    loginHint === "google"
+      ? "google-customer"
+      : loginHint === "apple"
+        ? "apple-customer"
+        : undefined;
+  return subject
+    ? [...accounts].find((account) => account.subject === subject)
+    : undefined;
+}
+
 export function createPresetAccounts(
   ownerSubject: string,
   demoPassword: string
@@ -95,7 +128,7 @@ export function createPresetAccounts(
     {
       subject: ownerSubject,
       name: "OrderFlow Owner",
-      email: "owner@example.test",
+      email: "owner@example.com",
       password: demoPassword,
       kind: "staff",
       preset: true
@@ -103,7 +136,7 @@ export function createPresetAccounts(
     {
       subject: "demo-admin",
       name: "OrderFlow Admin",
-      email: "admin@example.test",
+      email: "admin@example.com",
       password: demoPassword,
       kind: "staff",
       preset: true
@@ -111,7 +144,7 @@ export function createPresetAccounts(
     {
       subject: "demo-staff-picker-packer",
       name: "Picker Packer",
-      email: "picker@example.test",
+      email: "picker@example.com",
       password: demoPassword,
       kind: "staff",
       preset: true
@@ -119,7 +152,7 @@ export function createPresetAccounts(
     {
       subject: "demo-staff-inspector",
       name: "Inspector",
-      email: "inspector@example.test",
+      email: "inspector@example.com",
       password: demoPassword,
       kind: "staff",
       preset: true
@@ -127,7 +160,7 @@ export function createPresetAccounts(
     {
       subject: "demo-staff-full",
       name: "Full Staff",
-      email: "staff@example.test",
+      email: "staff@example.com",
       password: demoPassword,
       kind: "staff",
       preset: true
@@ -135,7 +168,7 @@ export function createPresetAccounts(
     {
       subject: "demo-customer-a",
       name: "Customer A",
-      email: "customer-a@example.test",
+      email: "customer-a@example.com",
       password: demoPassword,
       kind: "customer",
       preset: true
@@ -143,7 +176,23 @@ export function createPresetAccounts(
     {
       subject: "demo-customer-b",
       name: "Customer B",
-      email: "customer-b@example.test",
+      email: "customer-b@example.com",
+      password: demoPassword,
+      kind: "customer",
+      preset: true
+    },
+    {
+      subject: "google-customer",
+      name: "Google Customer",
+      email: "google.customer@example.com",
+      password: demoPassword,
+      kind: "customer",
+      preset: true
+    },
+    {
+      subject: "apple-customer",
+      name: "Apple Customer",
+      email: "apple.customer@example.com",
       password: demoPassword,
       kind: "customer",
       preset: true

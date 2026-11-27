@@ -3,16 +3,15 @@ import { randomUUID } from "node:crypto";
 
 const apiBaseUrl = process.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const demoPassword = process.env.MOCK_OIDC_DEMO_PASSWORD;
-const ownerSubject = process.env.BOOTSTRAP_OWNER_SUBJECT ?? "demo-owner";
 
 const demoAccounts = [
-  { subject: ownerSubject, name: "Owner", path: "/orders" },
-  { subject: "demo-admin", name: "Admin", path: "/orders" },
-  { subject: "demo-staff-picker-packer", name: "Picker", path: "/orders" },
-  { subject: "demo-staff-inspector", name: "Inspector", path: "/orders" },
-  { subject: "demo-staff-full", name: "Full staff", path: "/orders" },
-  { subject: "demo-customer-a", name: "Customer A", path: "/shop" },
-  { subject: "demo-customer-b", name: "Customer B", path: "/shop" }
+  { email: "owner@example.com", name: "Owner", path: "/orders" },
+  { email: "admin@example.com", name: "Admin", path: "/orders" },
+  { email: "picker@example.com", name: "Picker", path: "/orders" },
+  { email: "inspector@example.com", name: "Inspector", path: "/orders" },
+  { email: "staff@example.com", name: "Full staff", path: "/orders" },
+  { email: "customer-a@example.com", name: "Customer A", path: "/shop" },
+  { email: "customer-b@example.com", name: "Customer B", path: "/shop" }
 ] as const;
 
 const internalTerms = /admin|owner|staff|operations|workspace/i;
@@ -23,19 +22,11 @@ const staffAccountNames = [
   "Inspector",
   "Full Staff"
 ];
-const staffAccountSubjects = [
-  ownerSubject,
-  "demo-admin",
-  "demo-staff-picker-packer",
-  "demo-staff-inspector",
-  "demo-staff-full"
-];
-
 for (const account of demoAccounts) {
   test(`1A-01 signs in as ${account.name} and lands in ${account.path}`, async ({
     page
   }) => {
-    await signInAs(page, account.subject, portalFor(account.path));
+    await signInAs(page, account.email, portalFor(account.path));
     await expect(page).toHaveURL(
       new RegExp(`${account.path.replace("/", "\\/")}$`)
     );
@@ -64,32 +55,33 @@ test("1A-02 creates a new OIDC account and provisions the claims as customer", a
   if (!demoPassword)
     throw new Error("MOCK_OIDC_DEMO_PASSWORD is required for browser tests");
   const name = `New customer ${randomUUID()}`;
-  const email = `slice-1a-${randomUUID()}@example.test`;
+  const email = `slice-1a-${randomUUID()}@example.com`;
+  const chosenPassword = `Customer-${randomUUID()}`;
 
   await page.goto("/sign-in");
   await page.getByRole("link", { name: "Create a Customer Account" }).click();
   await expectIssuerPortal(page, "/sign-in", "sign-up");
 
-  // Hiding staff accounts is not enough: the issuer must also refuse them.
+  // Customer sign-in cannot authenticate a staff identity even if forged.
   const interactionUrl = new URL(page.url());
   const forgedLoginResponse = await page.request.post(
     new URL(
       `${interactionUrl.pathname}/login`,
       interactionUrl.origin
     ).toString(),
-    { form: { account_id: "demo-admin", password: demoPassword } }
+    { form: { email: "admin@example.com", password: demoPassword } }
   );
   expect(forgedLoginResponse.status()).toBe(401);
   const forgedLoginHtml = await forgedLoginResponse.text();
   expect(forgedLoginHtml).toContain("Sign-in failed.");
   expect(forgedLoginHtml).toContain("Create a Customer Account");
-  expect(forgedLoginHtml).not.toContain('id="account_id"');
+  expect(forgedLoginHtml).not.toContain('id="email"');
   for (const name of staffAccountNames)
     expect(forgedLoginHtml).not.toContain(name);
 
-  await page.getByLabel("Name").fill(name);
+  await page.getByLabel("Full Name").fill(name);
   await page.getByLabel("Email").fill(email);
-  await page.locator("#new-password").fill(demoPassword);
+  await page.locator("#new-password").fill(chosenPassword);
   await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/shop$/);
@@ -106,13 +98,50 @@ test("1A-02 creates a new OIDC account and provisions the claims as customer", a
     landing_path: "/shop",
     name
   });
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await page.getByRole("link", { name: "Sign in with Email" }).click();
+  await expectIssuerPortal(page, "/sign-in", "sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(chosenPassword);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/shop$/);
+  await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
+});
+
+test("Google and Apple shortcuts create sessions for their fixed customer identities", async ({
+  page
+}) => {
+  for (const provider of [
+    { name: "Google", customerName: "Google Customer" },
+    { name: "Apple", customerName: "Apple Customer" }
+  ]) {
+    await page.goto("/sign-in");
+    await page
+      .getByRole("link", { name: `Continue with ${provider.name}` })
+      .click();
+    await expect(page).toHaveURL(/\/shop$/);
+    await expect(
+      page.getByText(`Signed in as ${provider.customerName}`)
+    ).toBeVisible();
+    const response = await page.request.get(`${apiBaseUrl}/api/v1/me`);
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toMatchObject({
+      roles: ["customer"],
+      landing_path: "/shop",
+      name: provider.customerName
+    });
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/sign-in$/);
+  }
 });
 
 test("1A-15 uses HttpOnly SameSite cookies and no browser token storage", async ({
   page,
   context
 }) => {
-  await signInAs(page, "demo-customer-a", "/sign-in");
+  await signInAs(page, "customer-a@example.com", "/sign-in");
 
   const cookies = await context.cookies(apiBaseUrl);
   const sessionCookie = cookies.find(
@@ -138,7 +167,7 @@ test("1A-16 shows no-access for a customer opening the staff workspace", async (
   page
 }) => {
   // Signing in through the internal portal grants nothing: access is server-enforced.
-  await signInAs(page, "demo-customer-a", "/admin/sign-in");
+  await signInAs(page, "customer-a@example.com", "/admin/sign-in");
   await expect(page).toHaveURL(/\/no-access$/);
   await expect(page.getByRole("heading", { name: "No access" })).toBeVisible();
   await expectNoInternalReferences(page);
@@ -186,6 +215,13 @@ test("1A-21 customer sign-in page offers only customer options and no internal r
     expect(authorizationUrl.pathname).toBe("/api/v1/auth/oidc/sign-in");
     expect(authorizationUrl.searchParams.get("portal")).toBe("customer");
     expect(authorizationUrl.searchParams.get("mode")).toBe("sign-in");
+    expect(authorizationUrl.searchParams.get("provider")).toBe(
+      label === "Continue with Google"
+        ? "google"
+        : label === "Continue with Apple"
+          ? "apple"
+          : null
+    );
   }
   const signUpUrl = authorizationUrlFromLink(
     await page
@@ -214,6 +250,12 @@ test("1A-23 the internal portal is a direct, unindexed route that starts sign-in
   await expect(
     page.getByRole("link", { name: "Sign in to Operations" })
   ).toHaveAttribute("href", /return_to=%2Forders&portal=staff$/);
+  await expect(
+    page.getByRole("link", { name: "Continue with Google" })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Continue with Apple" })
+  ).toHaveCount(0);
 });
 
 test("1A-25 an unauthenticated visit to /orders is sent to the internal portal", async ({
@@ -241,7 +283,7 @@ function authorizationUrlFromLink(href: string | null, label: string): URL {
 
 async function signInAs(
   page: Page,
-  subject: string,
+  email: string,
   portal: "/sign-in" | "/admin/sign-in"
 ): Promise<void> {
   if (!demoPassword)
@@ -254,8 +296,8 @@ async function signInAs(
     })
     .click();
   await expectIssuerPortal(page, portal);
-  await page.getByLabel("Demo account").selectOption(subject);
-  await page.locator("#password").fill(demoPassword);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(demoPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/(shop|orders|no-access)$/);
 }
@@ -266,31 +308,19 @@ async function expectIssuerPortal(
   portal: "/sign-in" | "/admin/sign-in",
   mode?: "sign-in" | "sign-up"
 ): Promise<void> {
-  const accountIds = () =>
-    page
-      .locator("#account_id option")
-      .evaluateAll((options) =>
-        options.map((option) => (option as HTMLOptionElement).value)
-      );
   if (portal === "/sign-in") {
     if (mode === "sign-up") {
       await expect(page.locator("#create-account-heading")).toBeVisible();
       await expect(page.locator("#new-name")).toBeVisible();
-      await expect(page.locator("#account_id")).toHaveCount(0);
+      await expect(page.locator("#email")).toHaveCount(0);
     } else {
       await expect(
         page.getByRole("heading", {
           name: "Ghar ki Ronak — Customer Account Sign-In"
         })
       ).toBeVisible();
-      await expect(page.locator("#account_id")).toBeVisible();
+      await expect(page.locator("#email")).toBeVisible();
       await expect(page.locator("#new-name")).toHaveCount(0);
-      const ids = await accountIds();
-      expect(ids).toEqual(
-        expect.arrayContaining(["demo-customer-a", "demo-customer-b"])
-      );
-      for (const subject of staffAccountSubjects)
-        expect(ids).not.toContain(subject);
     }
     const html = await page.content();
     for (const name of staffAccountNames) expect(html).not.toContain(name);
@@ -305,7 +335,6 @@ async function expectIssuerPortal(
   await expect(
     page.getByRole("heading", { name: "Create a Customer Account" })
   ).toHaveCount(0);
-  expect(await accountIds()).toEqual(
-    expect.arrayContaining([...staffAccountSubjects, "demo-customer-a"])
-  );
+  await expect(page.locator("#email")).toBeVisible();
+  await expect(page.locator("#new-name")).toHaveCount(0);
 }

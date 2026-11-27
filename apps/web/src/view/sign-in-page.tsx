@@ -5,7 +5,19 @@ import { PageFrame } from "./page-frame.js";
 /** Public customer portal. It must never mention internal workspaces. */
 export function SignInPage() {
   usePageTitle("Sign in · Ghar ki Ronak");
-  const signInUrl = buildOidcSignInUrl("/", "customer", "sign-in");
+  const emailSignInUrl = buildOidcSignInUrl("/", "customer", "sign-in");
+  const googleSignInUrl = buildOidcSignInUrl(
+    "/",
+    "customer",
+    "sign-in",
+    "google"
+  );
+  const appleSignInUrl = buildOidcSignInUrl(
+    "/",
+    "customer",
+    "sign-in",
+    "apple"
+  );
   const signUpUrl = buildOidcSignInUrl("/", "customer", "sign-up");
 
   return (
@@ -19,13 +31,22 @@ export function SignInPage() {
             customer account in a minute.
           </p>
           <div className="auth-actions">
-            <a className="button button-primary button-block" href={signInUrl}>
+            <a
+              className="button button-primary button-block"
+              href={emailSignInUrl}
+            >
               Sign in with Email
             </a>
-            <a className="button button-outline button-block" href={signInUrl}>
+            <a
+              className="button button-outline button-block"
+              href={googleSignInUrl}
+            >
               Continue with Google
             </a>
-            <a className="button button-outline button-block" href={signInUrl}>
+            <a
+              className="button button-outline button-block"
+              href={appleSignInUrl}
+            >
               Continue with Apple
             </a>
           </div>

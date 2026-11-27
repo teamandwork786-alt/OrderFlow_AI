@@ -8,11 +8,12 @@ import Provider from "oidc-provider";
 import pino from "pino";
 import { z } from "zod";
 import {
-  accountsForPortal,
+  accountForEmail,
   CreateAccountSchema,
   createPresetAccounts,
   passwordMatches,
   parsePortal,
+  providerAccountForLoginHint,
   registerCustomerAccount,
   type MockAccount,
   type Portal
@@ -53,7 +54,7 @@ const provider = new Provider(environment.MOCK_OIDC_ISSUER_URL, {
       token_endpoint_auth_method: "client_secret_basic"
     }
   ],
-  extraParams: ["portal", "mode"],
+  extraParams: ["portal", "mode", "login_hint"],
   claims: {
     openid: ["sub"],
     profile: ["name"],
@@ -123,10 +124,18 @@ app.get("/interaction/:uid", async (request, response, next) => {
     }
     const portal = parsePortal(interaction.params.portal);
     const mode = parseLoginMode(interaction.params.mode);
+    const hintedAccount = providerAccountForLoginHint(
+      accounts.values(),
+      portal,
+      interaction.params.login_hint
+    );
+    if (hintedAccount) {
+      await finishLogin(request, response, hintedAccount);
+      return;
+    }
     response.type("html").send(
       renderLoginPage({
         portal,
-        accounts: accountsForPortal(accounts.values(), portal),
         interactionUrl: interactionPath(request.params.uid),
         mode
       })
@@ -139,12 +148,10 @@ app.get("/interaction/:uid", async (request, response, next) => {
 app.post("/interaction/:uid/login", async (request, response, next) => {
   try {
     const { portal, mode } = await loginContext(request, response);
-    const accountId = readText(request.body.account_id);
+    const email = readText(request.body.email);
     const password = readText(request.body.password);
     // The portal decides which accounts may sign in, not only which are listed.
-    const account = accountsForPortal(accounts.values(), portal).find(
-      (candidate) => candidate.subject === accountId
-    );
+    const account = accountForEmail(accounts.values(), email, portal);
     if (!account || !passwordMatches(password, account.password)) {
       sendLoginPage(request, response, portal, mode, "Sign-in failed.", 401);
       return;
@@ -267,7 +274,6 @@ function sendLoginPage(
     .send(
       renderLoginPage({
         portal,
-        accounts: accountsForPortal(accounts.values(), portal),
         interactionUrl: interactionPath(String(request.params.uid)),
         mode,
         error

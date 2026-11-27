@@ -93,6 +93,8 @@ All slices except 5C are HITL because each touches a mandatory HITL area (AGENTS
 
 **Human tasks:** confirm OIDC demo passwords; confirm seed data may be wiped on `docker compose down -v`.
 
+**Approved scope addendum (27 Nov 2026):** The customer mock OIDC portal supports email/password sign-in with seeded accounts and customer-selected passwords for new accounts. Customer sign-in may also use the local Google/Apple demo shortcuts, which authenticate as fixed demo customer identities; these are mock-only and are not real external identity-provider integrations. Staff sign-in remains email/password only. Account credentials remain in the mock issuer's in-memory store and are not persisted by OrderFlow.
+
 ---
 
 ### Slice 1B: Customer places an order
@@ -517,3 +519,4 @@ Each slice is signed off by the one person accountable for it (section 1). The f
 | 26 Nov 2026 | v02 | Standalone web edition: five slices with Slice 1 split into 1A, 1B, 1C; aligned to PRD v4.3 after the Gate 1 review; package approvals recorded | Team with AI agent |
 | 26 Nov 2026 | v03 | All slices made vertical at the planner's direction: 15 slices (1A to 1F, 2A to 2C, 3, 4A, 4B, 5A to 5C); no foundation or hardening slice (Gate 5 is a gate); migrations created per slice from `0001`; scenarios 16, 18, 29, 40, 49, 67, 68 re-owned; aligned to v4.4 documents | Team with AI agent |
 | 26 Nov 2026 | v03.1 | Team and ownership rewritten as per-slice end-to-end ownership (planner's review comment), mapped onto the 15 slice IDs, with the six unassigned slices distributed between Ihtesham, Taha and Ahmed; Gate 1 sign-off table made slice by slice; slice loop steps now name the slice owner so they no longer conflict with section 1 | Team with AI agent |
+| 27 Nov 2026 | v03.2 | Human-approved Slice 1A scope addendum: email/password mock sign-in, customer-selected account passwords, and fixed Google/Apple demo customer identities through OIDC | Ibrahim / AI agent |

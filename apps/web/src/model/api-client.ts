@@ -20,16 +20,19 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
 export type SignInPortal = "customer" | "staff";
 export type SignInMode = "sign-in" | "sign-up";
+export type SignInProvider = "google" | "apple";
 
 export function buildOidcSignInUrl(
   returnTo: string,
   portal: SignInPortal,
-  mode?: SignInMode
+  mode?: SignInMode,
+  provider?: SignInProvider
 ): string {
   const url = new URL("/api/v1/auth/oidc/sign-in", apiBaseUrl);
   url.searchParams.set("return_to", returnTo);
   url.searchParams.set("portal", portal);
   if (mode) url.searchParams.set("mode", mode);
+  if (provider) url.searchParams.set("provider", provider);
   return url.toString();
 }
 

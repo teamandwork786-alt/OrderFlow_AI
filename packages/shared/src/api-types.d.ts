@@ -177,10 +177,12 @@ export interface operations {
     parameters: {
       query?: {
         return_to?: string;
-        /** @description Which sign-in portal started the request. It only changes which demo accounts the identity provider offers. Access is always decided by server-side permissions. Missing or unknown values mean customer. */
+        /** @description Which sign-in portal started the request. It controls which customer or staff identities the issuer may authenticate. Access is always decided by server-side permissions. Missing or unknown values mean customer. */
         portal?: "customer" | "staff";
         /** @description Selects the customer identity-provider screen. When omitted, the provider may show both sign-in and account creation. Access is always decided by server-side permissions. */
         mode?: "sign-in" | "sign-up";
+        /** @description Selects a mock customer identity shortcut. It is valid only with the customer portal and is forwarded to the issuer as login_hint. */
+        provider?: "google" | "apple";
       };
       header?: never;
       path?: never;

@@ -41,12 +41,6 @@ export function createApp(): Application {
   });
   app.use(express.json({ limit: "100kb" }));
 
-  const signInLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 20,
-    standardHeaders: "draft-8",
-    legacyHeaders: false
-  });
   const healthLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 120,
@@ -54,8 +48,9 @@ export function createApp(): Application {
     legacyHeaders: false
   });
   app.use("/health", healthLimiter);
-  app.use("/api/v1/auth/oidc/sign-in", signInLimiter);
-  app.use("/api/v1/auth/oidc/callback", signInLimiter);
+  // Keep the callback's expected redirect separate from sign-in attempt limits.
+  app.use("/api/v1/auth/oidc/sign-in", createOidcRateLimiter());
+  app.use("/api/v1/auth/oidc/callback", createOidcRateLimiter());
 
   app.get("/health", async (_request, response) => {
     try {
@@ -99,4 +94,13 @@ export function createApp(): Application {
   });
   app.use(errorHandler);
   return app;
+}
+
+function createOidcRateLimiter() {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: "draft-8",
+    legacyHeaders: false
+  });
 }
