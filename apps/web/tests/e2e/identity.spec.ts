@@ -16,6 +16,20 @@ const demoAccounts = [
 ] as const;
 
 const internalTerms = /admin|owner|staff|operations|workspace/i;
+const staffAccountNames = [
+  "OrderFlow Owner",
+  "OrderFlow Admin",
+  "Picker Packer",
+  "Inspector",
+  "Full Staff"
+];
+const staffAccountSubjects = [
+  ownerSubject,
+  "demo-admin",
+  "demo-staff-picker-packer",
+  "demo-staff-inspector",
+  "demo-staff-full"
+];
 
 for (const account of demoAccounts) {
   test(`1A-01 signs in as ${account.name} and lands in ${account.path}`, async ({
@@ -54,6 +68,21 @@ test("1A-02 creates a new OIDC account and provisions the claims as customer", a
 
   await page.goto("/sign-in");
   await page.getByRole("link", { name: "Create a Customer Account" }).click();
+  await expectIssuerPortal(page, "/sign-in");
+
+  // Hiding staff accounts is not enough: the issuer must also refuse them.
+  await page.locator("#account_id").evaluate((select, subject) => {
+    const option = document.createElement("option");
+    option.value = subject;
+    option.textContent = "forged";
+    select.append(option);
+  }, "demo-admin");
+  await page.getByLabel("Demo account").selectOption("demo-admin");
+  await page.locator("#password").fill(demoPassword);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Sign-in failed.");
+  await expectIssuerPortal(page, "/sign-in");
+
   await page.getByLabel("Name").fill(name);
   await page.getByLabel("Email").fill(email);
   await page.locator("#new-password").fill(demoPassword);
@@ -138,6 +167,16 @@ test("1A-21 customer sign-in page offers only customer options and no internal r
     page.getByRole("link", { name: "Create a Customer Account" })
   ).toBeVisible();
   await expectNoInternalReferences(page);
+  for (const label of [
+    "Continue with Google",
+    "Continue with Apple",
+    "Create a Customer Account"
+  ]) {
+    await expect(page.getByRole("link", { name: label })).toHaveAttribute(
+      "href",
+      /portal=customer/
+    );
+  }
 });
 
 test("1A-23 the internal portal is a direct, unindexed route that starts sign-in for /orders", async ({
@@ -155,7 +194,7 @@ test("1A-23 the internal portal is a direct, unindexed route that starts sign-in
   );
   await expect(
     page.getByRole("link", { name: "Sign in to Operations" })
-  ).toHaveAttribute("href", /return_to=%2Forders$/);
+  ).toHaveAttribute("href", /return_to=%2Forders&portal=staff$/);
 });
 
 test("1A-25 an unauthenticated visit to /orders is sent to the internal portal", async ({
@@ -190,8 +229,53 @@ async function signInAs(
         portal === "/sign-in" ? "Continue with Google" : "Sign in to Operations"
     })
     .click();
+  await expectIssuerPortal(page, portal);
   await page.getByLabel("Demo account").selectOption(subject);
   await page.locator("#password").fill(demoPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/(shop|orders|no-access)$/);
+}
+
+/** The identity provider page must match the portal that started sign-in. */
+async function expectIssuerPortal(
+  page: Page,
+  portal: "/sign-in" | "/admin/sign-in"
+): Promise<void> {
+  const accountIds = () =>
+    page
+      .locator("#account_id option")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value)
+      );
+  if (portal === "/sign-in") {
+    await expect(
+      page.getByRole("heading", {
+        name: "Ghar ki Ronak — Customer Account Sign-In"
+      })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Create a Customer Account" })
+    ).toBeVisible();
+    const ids = await accountIds();
+    expect(ids).toEqual(
+      expect.arrayContaining(["demo-customer-a", "demo-customer-b"])
+    );
+    for (const subject of staffAccountSubjects)
+      expect(ids).not.toContain(subject);
+    const html = await page.content();
+    for (const name of staffAccountNames) expect(html).not.toContain(name);
+    expect(html).not.toMatch(/owner|admin|staff|operations|internal/i);
+    return;
+  }
+  await expect(
+    page.getByRole("heading", {
+      name: "OrderFlow Operations — Internal Identity Sign-In"
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Create a Customer Account" })
+  ).toHaveCount(0);
+  expect(await accountIds()).toEqual(
+    expect.arrayContaining([...staffAccountSubjects, "demo-customer-a"])
+  );
 }

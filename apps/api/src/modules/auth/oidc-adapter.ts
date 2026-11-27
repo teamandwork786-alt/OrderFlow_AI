@@ -17,11 +17,14 @@ interface TokenResponse {
   id_token: string;
 }
 
+export type SignInPortal = "customer" | "staff";
+
 export interface OidcLoginRequest {
   state: string;
   nonce: string;
   codeVerifier: string;
   returnTo: string;
+  portal: SignInPortal;
 }
 
 export interface OidcPendingLogin extends OidcLoginRequest {
@@ -56,7 +59,8 @@ export class OidcIssuerAdapter {
       code_challenge: createHash("sha256")
         .update(request.codeVerifier)
         .digest("base64url"),
-      code_challenge_method: "S256"
+      code_challenge_method: "S256",
+      portal: request.portal
     }).toString();
     return url;
   }
@@ -197,12 +201,16 @@ function rebaseEndpoint(endpoint: string, internalOrigin: string): URL {
   return new URL(`${parsed.pathname}${parsed.search}`, internalOrigin);
 }
 
-export function createPendingLogin(returnTo: string): OidcPendingLogin {
+export function createPendingLogin(
+  returnTo: string,
+  portal: SignInPortal = "customer"
+): OidcPendingLogin {
   return {
     state: randomBytes(32).toString("base64url"),
     nonce: randomBytes(32).toString("base64url"),
     codeVerifier: randomBytes(32).toString("base64url"),
     returnTo,
+    portal,
     expiresAt: Date.now() + 5 * 60 * 1000
   };
 }

@@ -5,7 +5,7 @@ import { PageFrame } from "./page-frame.js";
 /** Public customer portal. It must never mention internal workspaces. */
 export function SignInPage() {
   usePageTitle("Sign in · Ghar ki Ronak");
-  const signInUrl = buildOidcSignInUrl("/");
+  const signInUrl = buildOidcSignInUrl("/", "customer");
 
   return (
     <PageFrame variant="customer">

@@ -34,6 +34,16 @@ paths:
           schema:
             type: string
             maxLength: 200
+        - in: query
+          name: portal
+          description: >-
+            Which sign-in portal started the request. It only changes which demo
+            accounts the identity provider offers. Access is always decided by
+            server-side permissions. Missing or unknown values mean customer.
+          schema:
+            type: string
+            enum: [customer, staff]
+            default: customer
       responses:
         "302":
           description: Redirect to the configured OpenID Connect issuer

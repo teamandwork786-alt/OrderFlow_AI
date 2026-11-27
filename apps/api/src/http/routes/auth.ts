@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import {
   canPerformStep,
   landingPathForRoles,
@@ -25,6 +26,9 @@ import {
 } from "../../modules/users/service.js";
 import { requireSession } from "../middleware/require-session.js";
 
+// Unknown or missing values fall back to the customer portal.
+const PortalSchema = z.enum(["customer", "staff"]).catch("customer");
+
 const STATE_COOKIE = "orderflow_oidc_state";
 const STATE_COOKIE_TTL = 5 * 60 * 1000;
 
@@ -49,7 +53,8 @@ export function createAuthRouter({ config }: AuthDependencies): Router {
   router.get("/auth/oidc/sign-in", async (request, response) => {
     const query = SignInQuerySchema.parse(request.query);
     const returnTo = normalizeReturnTo(query.return_to);
-    const pending = createPendingLogin(returnTo);
+    const portal = PortalSchema.parse(request.query.portal);
+    const pending = createPendingLogin(returnTo, portal);
     pendingLogins.set(pending.state, pending);
     response.cookie(STATE_COOKIE, pending.state, {
       ...authCookieOptions,

@@ -9,7 +9,7 @@ declare module "oidc-provider" {
       };
     };
     grantId?: string;
-    params: { client_id: string };
+    params: { client_id: string; portal?: unknown };
     session?: { accountId: string } | null;
   }
 
@@ -29,6 +29,7 @@ declare module "oidc-provider" {
       token_endpoint_auth_method: string;
     }>;
     claims: Record<string, string[]>;
+    extraParams?: string[];
     features: {
       devInteractions: { enabled: boolean };
       claimsParameter: { enabled: boolean };

@@ -18,9 +18,15 @@ export interface CurrentUser {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
-export function buildOidcSignInUrl(returnTo: string): string {
+export type SignInPortal = "customer" | "staff";
+
+export function buildOidcSignInUrl(
+  returnTo: string,
+  portal: SignInPortal
+): string {
   const url = new URL("/api/v1/auth/oidc/sign-in", apiBaseUrl);
   url.searchParams.set("return_to", returnTo);
+  url.searchParams.set("portal", portal);
   return url.toString();
 }
 

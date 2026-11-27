@@ -9,7 +9,7 @@ import { PageFrame } from "./page-frame.js";
 export function AdminSignInPage() {
   usePageTitle("Sign in · OrderFlow Operations");
   useNoIndex();
-  const signInUrl = buildOidcSignInUrl("/orders");
+  const signInUrl = buildOidcSignInUrl("/orders", "staff");
 
   return (
     <PageFrame variant="operations">
