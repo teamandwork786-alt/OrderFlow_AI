@@ -114,4 +114,5 @@ async function signInAs(page: Page, subject: string): Promise<void> {
   await page.getByLabel("Demo account").selectOption(subject);
   await page.locator("#password").fill(demoPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/(shop|orders)$/);
 }
