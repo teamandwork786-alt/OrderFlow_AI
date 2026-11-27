@@ -44,6 +44,15 @@ paths:
             type: string
             enum: [customer, staff]
             default: customer
+        - in: query
+          name: mode
+          description: >-
+            Selects the customer identity-provider screen. When omitted, the
+            provider may show both sign-in and account creation. Access is
+            always decided by server-side permissions.
+          schema:
+            type: string
+            enum: [sign-in, sign-up]
       responses:
         "302":
           description: Redirect to the configured OpenID Connect issuer

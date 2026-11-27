@@ -15,7 +15,7 @@ import {
   type MockAccount,
   type Portal
 } from "./accounts.js";
-import { renderLoginPage } from "./login-page.js";
+import { renderLoginPage, type LoginMode } from "./login-page.js";
 
 const EnvironmentSchema = z.object({
   NODE_ENV: z
@@ -35,6 +35,7 @@ const logger = pino({
   level: environment.NODE_ENV === "test" ? "silent" : "info"
 });
 const accounts = createPresetAccounts(environment.BOOTSTRAP_OWNER_SUBJECT);
+const LoginModeSchema = z.enum(["sign-in", "sign-up"]);
 
 const provider = new Provider(environment.MOCK_OIDC_ISSUER_URL, {
   clients: [
@@ -47,7 +48,7 @@ const provider = new Provider(environment.MOCK_OIDC_ISSUER_URL, {
       token_endpoint_auth_method: "client_secret_basic"
     }
   ],
-  extraParams: ["portal"],
+  extraParams: ["portal", "mode"],
   claims: {
     openid: ["sub"],
     profile: ["name"],
@@ -116,11 +117,13 @@ app.get("/interaction/:uid", async (request, response, next) => {
       return;
     }
     const portal = parsePortal(interaction.params.portal);
+    const mode = parseLoginMode(interaction.params.mode);
     response.type("html").send(
       renderLoginPage({
         portal,
         accounts: accountsForPortal(accounts.values(), portal),
-        interactionUrl: interactionPath(request.params.uid)
+        interactionUrl: interactionPath(request.params.uid),
+        mode
       })
     );
   } catch (error) {
@@ -130,7 +133,7 @@ app.get("/interaction/:uid", async (request, response, next) => {
 
 app.post("/interaction/:uid/login", async (request, response, next) => {
   try {
-    const portal = await portalOf(request, response);
+    const { portal, mode } = await loginContext(request, response);
     const accountId = readText(request.body.account_id);
     const password = readText(request.body.password);
     // The portal decides which accounts may sign in, not only which are listed.
@@ -141,7 +144,7 @@ app.post("/interaction/:uid/login", async (request, response, next) => {
       !account ||
       !passwordMatches(password, environment.MOCK_OIDC_DEMO_PASSWORD)
     ) {
-      sendLoginPage(request, response, portal, "Sign-in failed.", 401);
+      sendLoginPage(request, response, portal, mode, "Sign-in failed.", 401);
       return;
     }
     await finishLogin(request, response, account);
@@ -154,7 +157,7 @@ app.post(
   "/interaction/:uid/create-account",
   async (request, response, next) => {
     try {
-      const portal = await portalOf(request, response);
+      const { portal, mode } = await loginContext(request, response);
       const parsed = CreateAccountSchema.safeParse({
         name: request.body.name,
         email: request.body.email,
@@ -172,6 +175,7 @@ app.post(
           request,
           response,
           portal,
+          mode,
           "Account details are invalid.",
           400
         );
@@ -249,15 +253,21 @@ function readText(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-async function portalOf(request: Request, response: Response): Promise<Portal> {
+async function loginContext(
+  request: Request,
+  response: Response
+): Promise<{ portal: Portal; mode?: LoginMode }> {
   const interaction = await provider.interactionDetails(request, response);
-  return parsePortal(interaction.params.portal);
+  const portal = parsePortal(interaction.params.portal);
+  const mode = parseLoginMode(interaction.params.mode);
+  return { portal, ...(mode ? { mode } : {}) };
 }
 
 function sendLoginPage(
   request: Request,
   response: Response,
   portal: Portal,
+  mode: LoginMode | undefined,
   error: string,
   status: number
 ): void {
@@ -269,9 +279,15 @@ function sendLoginPage(
         portal,
         accounts: accountsForPortal(accounts.values(), portal),
         interactionUrl: interactionPath(String(request.params.uid)),
+        mode,
         error
       })
     );
+}
+
+function parseLoginMode(value: unknown): LoginMode | undefined {
+  const parsed = LoginModeSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function interactionPath(uid: string): string {

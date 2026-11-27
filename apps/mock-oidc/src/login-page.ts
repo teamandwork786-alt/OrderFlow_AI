@@ -4,8 +4,11 @@ interface LoginPageOptions {
   portal: Portal;
   accounts: MockAccount[];
   interactionUrl: string;
+  mode?: LoginMode | undefined;
   error?: string | undefined;
 }
+
+export type LoginMode = "sign-in" | "sign-up";
 
 const themes = {
   customer: {
@@ -47,12 +50,19 @@ export function renderLoginPage({
   portal,
   accounts,
   interactionUrl,
+  mode,
   error
 }: LoginPageOptions): string {
   const theme = themes[portal];
+  const pageTitle =
+    portal === "customer" && mode === "sign-up"
+      ? "Ghar ki Ronak — Create a Customer Account"
+      : theme.title;
   const errorMessage = error
     ? `<p class="error" role="alert">${escapeHtml(error)}</p>`
     : "";
+  const showSignIn = portal === "staff" || mode !== "sign-up";
+  const showCreateAccount = portal === "customer" && mode !== "sign-in";
 
   const staffAccounts = accounts.filter((account) => account.kind === "staff");
   const customerAccounts = accounts.filter(
@@ -63,9 +73,8 @@ export function renderLoginPage({
       ? `${optionGroup("Staff and administrators", staffAccounts)}${optionGroup("Customer accounts", customerAccounts)}`
       : customerAccounts.map(optionTag).join("");
 
-  const createAccount =
-    portal === "customer"
-      ? `
+  const createAccount = showCreateAccount
+    ? `
       <section class="section" aria-labelledby="create-account-heading">
         <h2 id="create-account-heading">Create a Customer Account</h2>
         <form method="post" action="${escapeHtml(`${interactionUrl}/create-account`)}">
@@ -78,12 +87,26 @@ export function renderLoginPage({
           <button class="secondary" type="submit">Create account</button>
         </form>
       </section>`
-      : "";
+    : "";
 
   const intro =
-    portal === "customer"
-      ? "Choose a demo customer account to continue, or create a new one."
-      : "Choose a demo account to sign in to the operations workspace.";
+    portal === "staff"
+      ? "Choose a demo account to sign in to the operations workspace."
+      : mode === "sign-in"
+        ? "Sign in with your customer account."
+        : mode === "sign-up"
+          ? "Create your customer account to continue."
+          : "Choose a demo customer account to continue, or create a new one.";
+  const signInForm = showSignIn
+    ? `
+        <form method="post" action="${escapeHtml(`${interactionUrl}/login`)}">
+          <label for="account_id">Demo account</label>
+          <select id="account_id" name="account_id">${options}</select>
+          <label for="password">Demo password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button type="submit">Sign in</button>
+        </form>`
+    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -91,7 +114,7 @@ export function renderLoginPage({
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
-    <title>${escapeHtml(theme.title)}</title>
+    <title>${escapeHtml(pageTitle)}</title>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; min-height: 100vh; color: #1f2933; background: ${theme.page};
@@ -126,16 +149,10 @@ export function renderLoginPage({
     <header><div class="bar"><span class="mark" aria-hidden="true">${escapeHtml(theme.mark)}</span><span>${escapeHtml(theme.brand)}</span></div></header>
     <main>
       <div class="card">
-        <h1>${escapeHtml(theme.title)}</h1>
+        <h1>${escapeHtml(pageTitle)}</h1>
         <p>${escapeHtml(intro)}</p>
         ${errorMessage}
-        <form method="post" action="${escapeHtml(`${interactionUrl}/login`)}">
-          <label for="account_id">Demo account</label>
-          <select id="account_id" name="account_id">${options}</select>
-          <label for="password">Demo password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-          <button type="submit">Sign in</button>
-        </form>${createAccount}
+        ${signInForm}${createAccount}
       </div>
     </main>
   </body>

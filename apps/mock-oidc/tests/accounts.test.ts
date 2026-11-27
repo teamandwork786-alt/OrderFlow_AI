@@ -71,11 +71,12 @@ describe("accounts offered per portal", () => {
 });
 
 describe("login page", () => {
-  const render = (portal: "customer" | "staff") =>
+  const render = (portal: "customer" | "staff", mode?: "sign-in" | "sign-up") =>
     renderLoginPage({
       portal,
       accounts: accountsForPortal(allAccounts().values(), portal),
-      interactionUrl: "/interaction/abc"
+      interactionUrl: "/interaction/abc",
+      mode
     });
 
   it("customer page is branded and never contains staff accounts or wording", () => {
@@ -89,6 +90,29 @@ describe("login page", () => {
     expect(html).not.toMatch(
       /owner|admin|staff|picker|inspector|operations|internal/i
     );
+  });
+
+  it("shows only the demo sign-in form in customer sign-in mode", () => {
+    const html = render("customer", "sign-in");
+    expect(html).toContain('id="account_id"');
+    expect(html).toContain('id="password"');
+    expect(html).not.toContain("Create a Customer Account");
+    expect(html).not.toContain('id="new-name"');
+  });
+
+  it("shows only the account-creation form in customer sign-up mode", () => {
+    const html = render("customer", "sign-up");
+    expect(html).toContain("Create a Customer Account");
+    expect(html).toContain('id="new-name"');
+    expect(html).toContain('id="new-email"');
+    expect(html).not.toContain('id="account_id"');
+    expect(html).not.toContain('id="password"');
+  });
+
+  it("keeps both customer forms visible when mode is omitted", () => {
+    const html = render("customer");
+    expect(html).toContain('id="account_id"');
+    expect(html).toContain('id="new-name"');
   });
 
   it("staff page is the internal sign-in, lists staff first and offers no sign-up", () => {

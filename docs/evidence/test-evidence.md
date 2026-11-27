@@ -46,3 +46,20 @@ The test database was migrated from empty during the first test setup; subsequen
 | 1A-18 / §8.5 | SQL | Check app SELECT/INSERT/UPDATE grants, forbidden privileges, and read-only base-table access. | App has only intended table/column access, no DELETE/TRUNCATE; RO cannot read base tables. | Allowed app operations succeeded; forbidden operations and RO base-table SELECT were rejected. | PASS |
 | 1A-19 / §8.3 | SQL | Insert two users with the same OIDC subject. | Second insert is rejected by uniqueness constraint. | Duplicate subject insert was rejected. | PASS |
 | 1A-20 / §8.3 | SQL | Apply `0001_identity` to an empty test database and deploy again. | Initial migration succeeds; subsequent deploy is a no-op. | Fresh migration succeeded; repeat deploy was a no-op with one completed migration record. | PASS |
+
+## Customer sign-in mode follow-up
+
+Date: 2026-11-27
+Branch: `feat/customer-sign-in-modes`
+
+| Command or check | Actual result |
+|---|---|
+| `npm run api:types` | Passed; regenerated the OpenAPI query types for `portal` and `mode`. |
+| `npm run lint` | Passed. |
+| `npm run typecheck` | Passed. |
+| `npm run format:check` | Passed. |
+| `npm test` | Passed: 34 tests across 6 files, including mode forwarding and mode-specific mock pages. |
+| `npm run test:e2e` | Passed: 13 browser tests, including customer sign-in and sign-up screen routing. |
+| `docker compose --env-file .env.example up --build -d mock-oidc api web` | Rebuilt successfully; API, mock OIDC, web, and PostgreSQL reported healthy. |
+
+The customer CTA tests verify that Email, Google, and Apple use `portal=customer&mode=sign-in`, and account creation uses `portal=customer&mode=sign-up`. The mock issuer renders only the selected form; an omitted mode retains both forms. The internal staff portal remains unchanged.

@@ -177,6 +177,10 @@ export interface operations {
     parameters: {
       query?: {
         return_to?: string;
+        /** @description Which sign-in portal started the request. It only changes which demo accounts the identity provider offers. Access is always decided by server-side permissions. Missing or unknown values mean customer. */
+        portal?: "customer" | "staff";
+        /** @description Selects the customer identity-provider screen. When omitted, the provider may show both sign-in and account creation. Access is always decided by server-side permissions. */
+        mode?: "sign-in" | "sign-up";
       };
       header?: never;
       path?: never;

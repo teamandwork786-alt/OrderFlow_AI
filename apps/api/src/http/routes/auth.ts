@@ -28,6 +28,7 @@ import { requireSession } from "../middleware/require-session.js";
 
 // Unknown or missing values fall back to the customer portal.
 const PortalSchema = z.enum(["customer", "staff"]).catch("customer");
+const SignInModeSchema = z.enum(["sign-in", "sign-up"]).optional();
 
 const STATE_COOKIE = "orderflow_oidc_state";
 const STATE_COOKIE_TTL = 5 * 60 * 1000;
@@ -54,7 +55,8 @@ export function createAuthRouter({ config }: AuthDependencies): Router {
     const query = SignInQuerySchema.parse(request.query);
     const returnTo = normalizeReturnTo(query.return_to);
     const portal = PortalSchema.parse(request.query.portal);
-    const pending = createPendingLogin(returnTo, portal);
+    const mode = SignInModeSchema.parse(request.query.mode);
+    const pending = createPendingLogin(returnTo, portal, mode);
     pendingLogins.set(pending.state, pending);
     response.cookie(STATE_COOKIE, pending.state, {
       ...authCookieOptions,

@@ -115,6 +115,8 @@ describe("Slice 1A ID token verification", () => {
     const url = await adapter.createAuthorizationUrl(pending);
     expect(url.origin).toBe(issuer);
     expect(url.pathname).toBe("/auth");
+    expect(url.searchParams.get("portal")).toBe("customer");
+    expect(url.searchParams.get("mode")).toBeNull();
     expect(JSON.parse(url.searchParams.get("claims") ?? "{}")).toEqual({
       id_token: {
         name: { essential: true },
@@ -122,6 +124,16 @@ describe("Slice 1A ID token verification", () => {
       }
     });
   });
+
+  it.each(["sign-in", "sign-up"] as const)(
+    "forwards customer %s mode to the issuer",
+    async (mode) => {
+      const login = createPendingLogin("/", "customer", mode);
+      const url = await adapter.createAuthorizationUrl(login);
+      expect(url.searchParams.get("portal")).toBe("customer");
+      expect(url.searchParams.get("mode")).toBe(mode);
+    }
+  );
 
   it.each([
     ["expired", "expired"],
