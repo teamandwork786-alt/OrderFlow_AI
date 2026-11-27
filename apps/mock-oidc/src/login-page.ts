@@ -82,8 +82,8 @@ export function renderLoginPage({
           <input id="new-name" name="name" autocomplete="name" required maxlength="200">
           <label for="new-email">Email</label>
           <input id="new-email" name="email" type="email" autocomplete="email" required maxlength="320">
-          <label for="new-password">Demo password</label>
-          <input id="new-password" name="password" type="password" autocomplete="new-password" required>
+          <label for="new-password">Password</label>
+          <input id="new-password" name="password" type="password" autocomplete="new-password" required minlength="6">
           <button class="secondary" type="submit">Create account</button>
         </form>
       </section>`
@@ -102,7 +102,7 @@ export function renderLoginPage({
         <form method="post" action="${escapeHtml(`${interactionUrl}/login`)}">
           <label for="account_id">Demo account</label>
           <select id="account_id" name="account_id">${options}</select>
-          <label for="password">Demo password</label>
+          <label for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
           <button type="submit">Sign in</button>
         </form>`

@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import express, {
   type ErrorRequestHandler,
   type Request,
@@ -11,7 +11,9 @@ import {
   accountsForPortal,
   CreateAccountSchema,
   createPresetAccounts,
+  passwordMatches,
   parsePortal,
+  registerCustomerAccount,
   type MockAccount,
   type Portal
 } from "./accounts.js";
@@ -34,7 +36,10 @@ const environment = EnvironmentSchema.parse(process.env);
 const logger = pino({
   level: environment.NODE_ENV === "test" ? "silent" : "info"
 });
-const accounts = createPresetAccounts(environment.BOOTSTRAP_OWNER_SUBJECT);
+const accounts = createPresetAccounts(
+  environment.BOOTSTRAP_OWNER_SUBJECT,
+  environment.MOCK_OIDC_DEMO_PASSWORD
+);
 const LoginModeSchema = z.enum(["sign-in", "sign-up"]);
 
 const provider = new Provider(environment.MOCK_OIDC_ISSUER_URL, {
@@ -140,10 +145,7 @@ app.post("/interaction/:uid/login", async (request, response, next) => {
     const account = accountsForPortal(accounts.values(), portal).find(
       (candidate) => candidate.subject === accountId
     );
-    if (
-      !account ||
-      !passwordMatches(password, environment.MOCK_OIDC_DEMO_PASSWORD)
-    ) {
+    if (!account || !passwordMatches(password, account.password)) {
       sendLoginPage(request, response, portal, mode, "Sign-in failed.", 401);
       return;
     }
@@ -163,14 +165,7 @@ app.post(
         email: request.body.email,
         password: request.body.password
       });
-      if (
-        portal !== "customer" ||
-        !parsed.success ||
-        !passwordMatches(
-          parsed.data?.password,
-          environment.MOCK_OIDC_DEMO_PASSWORD
-        )
-      ) {
+      if (portal !== "customer" || mode === "sign-in" || !parsed.success) {
         sendLoginPage(
           request,
           response,
@@ -181,14 +176,22 @@ app.post(
         );
         return;
       }
-      const account: MockAccount = {
-        subject: `customer-${randomUUID()}`,
-        name: parsed.data.name,
-        email: parsed.data.email,
-        kind: "customer",
-        preset: false
-      };
-      accounts.set(account.subject, account);
+      const account = registerCustomerAccount(
+        accounts,
+        `customer-${randomUUID()}`,
+        parsed.data
+      );
+      if (!account) {
+        sendLoginPage(
+          request,
+          response,
+          portal,
+          mode,
+          "Account details are invalid.",
+          400
+        );
+        return;
+      }
       await finishLogin(request, response, account);
     } catch (error) {
       next(error);
@@ -233,19 +236,6 @@ async function finishLogin(
     response,
     { login: { accountId: account.subject } },
     { mergeWithLastSubmission: false }
-  );
-}
-
-function passwordMatches(
-  supplied: string | undefined,
-  expected: string
-): boolean {
-  if (typeof supplied !== "string") return false;
-  const suppliedBuffer = Buffer.from(supplied);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    suppliedBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(suppliedBuffer, expectedBuffer)
   );
 }
 

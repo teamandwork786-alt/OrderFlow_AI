@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   accountsForPortal,
+  CreateAccountSchema,
   createPresetAccounts,
+  hasAccountConflict,
+  passwordMatches,
   parsePortal,
+  registerCustomerAccount,
   type MockAccount
 } from "../src/accounts.js";
 import { renderLoginPage } from "../src/login-page.js";
@@ -16,11 +20,12 @@ const staffNames = [
 ];
 
 function allAccounts(): Map<string, MockAccount> {
-  const accounts = createPresetAccounts("demo-owner");
+  const accounts = createPresetAccounts("demo-owner", "demo-password");
   accounts.set("customer-new", {
     subject: "customer-new",
     name: "Newly Created",
     email: "new@example.test",
+    password: "custom-password",
     kind: "customer",
     preset: false
   });
@@ -46,6 +51,15 @@ describe("portal parsing", () => {
 });
 
 describe("accounts offered per portal", () => {
+  it("initializes every seeded account with the configured demo password", () => {
+    const accounts = createPresetAccounts("demo-owner", "demo-password");
+    expect(
+      [...accounts.values()].every(
+        (account) => account.password === "demo-password"
+      )
+    ).toBe(true);
+  });
+
   it("offers only customers, including newly created ones, to the customer portal", () => {
     const names = accountsForPortal(allAccounts().values(), "customer").map(
       (account) => account.name
@@ -67,6 +81,69 @@ describe("accounts offered per portal", () => {
     expect(subjects).not.toContain("demo-owner");
     expect(subjects).not.toContain("demo-admin");
     expect(subjects).not.toContain("demo-staff-full");
+  });
+});
+
+describe("customer account registration", () => {
+  it("requires a password with at least six characters", () => {
+    expect(
+      CreateAccountSchema.safeParse({
+        name: "New Customer",
+        email: "new@example.test",
+        password: "secret"
+      }).success
+    ).toBe(true);
+    expect(
+      CreateAccountSchema.safeParse({
+        name: "New Customer",
+        email: "new@example.test",
+        password: "short"
+      }).success
+    ).toBe(false);
+    expect(
+      CreateAccountSchema.safeParse({
+        name: "New Customer",
+        email: "new@example.test",
+        password: ""
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects duplicate names and emails without case sensitivity", () => {
+    const accounts = [...allAccounts().values()];
+    expect(
+      hasAccountConflict(accounts, "customer a", "other@example.test")
+    ).toBe(true);
+    expect(
+      hasAccountConflict(accounts, "Other Name", "CUSTOMER-A@example.test")
+    ).toBe(true);
+    expect(
+      hasAccountConflict(accounts, "Other Name", "fresh@example.test")
+    ).toBe(false);
+  });
+
+  it("stores a newly chosen password and matches only that account password", () => {
+    const accounts = createPresetAccounts("demo-owner", "demo-password");
+    const details = CreateAccountSchema.parse({
+      name: "New Customer",
+      email: "new@example.test",
+      password: "custom-password"
+    });
+    const account = registerCustomerAccount(accounts, "customer-new", details);
+
+    expect(account?.password).toBe("custom-password");
+    expect(passwordMatches("custom-password", account?.password ?? "")).toBe(
+      true
+    );
+    expect(passwordMatches("demo-password", account?.password ?? "")).toBe(
+      false
+    );
+    expect(
+      passwordMatches(
+        "demo-password",
+        accounts.get("demo-customer-a")?.password ?? ""
+      )
+    ).toBe(true);
   });
 });
 
@@ -133,6 +210,7 @@ describe("login page", () => {
           subject: "customer-x",
           name: '<script>alert("x")</script>',
           email: "x@example.test",
+          password: "custom-password",
           kind: "customer",
           preset: false
         }
@@ -141,5 +219,8 @@ describe("login page", () => {
     });
     expect(html).not.toContain("<script>alert");
     expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain('<label for="password">Password</label>');
+    expect(html).toContain('<label for="new-password">Password</label>');
+    expect(html).not.toContain("Demo password");
   });
 });
