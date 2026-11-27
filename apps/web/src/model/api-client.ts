@@ -18,6 +18,12 @@ export interface CurrentUser {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
+export function buildOidcSignInUrl(returnTo: string): string {
+  const url = new URL("/api/v1/auth/oidc/sign-in", apiBaseUrl);
+  url.searchParams.set("return_to", returnTo);
+  return url.toString();
+}
+
 export async function getCurrentUser(): Promise<CurrentUser> {
   const response = await fetch(`${apiBaseUrl}/api/v1/me`, {
     credentials: "include"

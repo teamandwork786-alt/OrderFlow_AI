@@ -1,24 +1,38 @@
-import { Link } from "react-router-dom";
+import { buildOidcSignInUrl } from "../model/api-client.js";
+import { usePageTitle } from "../controller/page.js";
+import { PageFrame } from "./page-frame.js";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-
+/** Public customer portal. It must never mention internal workspaces. */
 export function SignInPage() {
-  const signInUrl = new URL("/api/v1/auth/oidc/sign-in", apiBaseUrl);
-  signInUrl.searchParams.set("return_to", "/");
+  usePageTitle("Sign in · Ghar ki Ronak");
+  const signInUrl = buildOidcSignInUrl("/");
 
   return (
-    <main className="card sign-in-card">
-      <p className="eyebrow">OrderFlow AI</p>
-      <h1>Sign in</h1>
-      <p>Use your OrderFlow account to continue to the right workspace.</p>
-      <a className="primary-button" href={signInUrl.toString()}>
-        Sign in with OrderFlow
-      </a>
-      <p className="hint">
-        For the local demo, the identity provider offers the seeded demo
-        accounts.
-      </p>
-      <Link to="/no-access">Why can&apos;t I access a workspace?</Link>
-    </main>
+    <PageFrame variant="customer">
+      <main className="auth-panel">
+        <div className="auth-card">
+          <p className="eyebrow">Welcome</p>
+          <h1>Sign in to Ghar ki Ronak</h1>
+          <p className="lead">
+            Sign in to place and follow your decoration orders, or create a
+            customer account in a minute.
+          </p>
+          <div className="auth-actions">
+            <a className="button button-outline button-block" href={signInUrl}>
+              Continue with Google
+            </a>
+            <a className="button button-outline button-block" href={signInUrl}>
+              Continue with Apple
+            </a>
+          </div>
+          <p className="divider">
+            <span>New here?</span>
+          </p>
+          <a className="button button-primary button-block" href={signInUrl}>
+            Create a Customer Account
+          </a>
+        </div>
+      </main>
+    </PageFrame>
   );
 }

@@ -1,17 +1,20 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
-import { useCurrentUser, useSignOut } from "../controller/auth.js";
+import { useCurrentUser } from "../controller/auth.js";
 import {
   NoAccessPage,
   OrdersPlaceholder,
   RootLanding,
   ShopPlaceholder
 } from "./landing-pages.js";
+import { AdminSignInPage } from "./admin-sign-in-page.js";
 import { SignInPage } from "./sign-in-page.js";
 
 function AuthenticatedRoute({
-  children
+  children,
+  signInPath = "/sign-in"
 }: {
+  signInPath?: string;
   children: (
     user: NonNullable<ReturnType<typeof useCurrentUser>["data"]>
   ) => ReactNode;
@@ -25,7 +28,7 @@ function AuthenticatedRoute({
     );
   }
   if (query.isError && !query.data && isUnauthenticated(query.error)) {
-    return <Navigate to="/sign-in" replace />;
+    return <Navigate to={signInPath} replace />;
   }
   if (query.isError && !query.data) {
     return (
@@ -34,7 +37,7 @@ function AuthenticatedRoute({
       </p>
     );
   }
-  if (!query.data) return <Navigate to="/sign-in" replace />;
+  if (!query.data) return <Navigate to={signInPath} replace />;
   return (
     <>
       {query.isRefetchError && (
@@ -47,33 +50,12 @@ function AuthenticatedRoute({
   );
 }
 
-function SignedInNavigation() {
-  const query = useCurrentUser();
-  const signOut = useSignOut();
-  if (!query.data) return null;
-
-  return (
-    <nav className="topbar" aria-label="Account">
-      <span>{query.data.name}</span>
-      <button
-        className="text-button"
-        type="button"
-        onClick={() => signOut.mutate()}
-        disabled={signOut.isPending}
-      >
-        {signOut.isPending ? "Signing out…" : "Sign out"}
-      </button>
-      {signOut.isError && <span role="alert">Sign-out failed. Try again.</span>}
-    </nav>
-  );
-}
-
 function RoutedApp() {
   return (
     <>
-      <SignedInNavigation />
       <Routes>
         <Route path="/sign-in" element={<SignInPage />} />
+        <Route path="/admin/sign-in" element={<AdminSignInPage />} />
         <Route
           path="/"
           element={
@@ -93,7 +75,7 @@ function RoutedApp() {
         <Route
           path="/orders"
           element={
-            <AuthenticatedRoute>
+            <AuthenticatedRoute signInPath="/admin/sign-in">
               {(user) => <OrdersPlaceholder user={user} />}
             </AuthenticatedRoute>
           }
