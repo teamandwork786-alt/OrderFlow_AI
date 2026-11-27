@@ -467,8 +467,8 @@ Each slice is signed off by the one person accountable for it (section 1). The f
 
 | Slice | Accountable owner | Decision (Accept, Revise, Reject) | Date | Notes |
 |---|---|---|---|---|
-| Whole plan (Gate 1) | Ibrahim (Overall Process Lead) | | | |
-| 1A | Ibrahim | | | |
+| Whole plan (Gate 1) | Ibrahim (Overall Process Lead) | Accept | 2026-11-27 | Gate 1 approved; Slice 1A addendum approved for clean email/password login, custom registration passwords, and simulated Google/Apple OIDC customer identities. |
+| 1A | Ibrahim | Accept | 2026-11-27 | Slice 1A scope and email/password + simulated Google/Apple OIDC addendum approved to proceed. |
 | 1B | Ibrahim | | | |
 | 1C | Ibrahim | | | |
 | 1D | Ihtesham | | | |
