@@ -36,7 +36,7 @@ for (const account of demoAccounts) {
       ).toBeVisible();
     } else {
       await expect(
-        page.getByText("The storefront arrives in a later slice.")
+        page.getByRole("heading", { name: /Ghar ki Ronak/ }).first()
       ).toBeVisible();
     }
 

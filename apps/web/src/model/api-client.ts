@@ -16,7 +16,8 @@ export interface CurrentUser {
   landing_path: "/shop" | "/orders";
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+export const apiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
 export type SignInPortal = "customer" | "staff";
 export type SignInMode = "sign-in" | "sign-up";
@@ -60,7 +61,7 @@ export async function signOut(): Promise<void> {
   if (!response.ok) throw await createApiError(response);
 }
 
-async function createApiError(response: Response): Promise<Error> {
+export async function createApiError(response: Response): Promise<Error> {
   let payload: unknown;
   try {
     payload = await response.json();
@@ -73,6 +74,8 @@ async function createApiError(response: Response): Promise<Error> {
     : "The request could not be completed.";
   return Object.assign(new Error(message), {
     status: response.status,
-    code: parsed.success ? parsed.data.error.code : undefined
+    code: parsed.success ? parsed.data.error.code : undefined,
+    currentTotal: parsed.success ? parsed.data.error.current_total : undefined,
+    productIds: parsed.success ? parsed.data.error.product_ids : undefined
   });
 }

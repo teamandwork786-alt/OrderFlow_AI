@@ -16,7 +16,8 @@ export const errorHandler: ErrorRequestHandler = (
       error: {
         code: error.code,
         message: error.message,
-        correlation_id: correlationId
+        correlation_id: correlationId,
+        ...error.extras
       }
     });
     return;

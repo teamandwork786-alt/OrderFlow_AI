@@ -37,11 +37,11 @@ model Permission {
 }
 
 model UserRole {
-  userId     String   @map("user_id") @db.Uuid
-  roleId     String   @map("role_id") @db.VarChar(50)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([userId, roleId])
   @@index([roleId, userId], map: "user_roles_role_id_user_id_idx")
@@ -71,4 +71,93 @@ model AuditEvent {
   @@index([createdAt], map: "audit_events_created_at_idx")
   @@index([actorId, createdAt], map: "audit_events_actor_id_created_at_idx")
   @@map("audit_events")
+}
+
+model Product {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sku          String      @unique(map: "products_sku_key") @db.VarChar(50)
+  title        String      @db.VarChar(200)
+  description  String
+  category     String      @db.VarChar(60)
+  finish       String      @db.VarChar(60)
+  dimensionsCm String      @map("dimensions_cm") @db.VarChar(50)
+  dimensionsIn String      @map("dimensions_in") @db.VarChar(50)
+  badge        String?     @db.VarChar(40)
+  pricePkr     Decimal     @map("price_pkr") @db.Decimal(12, 2)
+  availability String      @default("AVAILABLE") @db.VarChar(20)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
+  orderItems   OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderNumber       String          @unique(map: "orders_order_number_key") @default(dbgenerated("('OF-'::text || lpad((nextval('order_number_seq'::regclass))::text, 6, '0'::text))")) @map("order_number") @db.VarChar(20)
+  publicToken       String          @unique(map: "orders_public_token_key") @map("public_token") @db.Char(32)
+  source            String          @db.VarChar(20)
+  customerUserId    String?         @map("customer_user_id") @db.Uuid
+  lifecycleStatus   String          @default("PENDING_PAYMENT") @map("lifecycle_status") @db.VarChar(20)
+  orderVersion      Int             @default(1) @map("order_version")
+  recipientName     String          @map("recipient_name") @db.VarChar(200)
+  recipientPhone    String          @map("recipient_phone") @db.VarChar(20)
+  recipientEmail    String?         @map("recipient_email") @db.VarChar(320)
+  deliveryAddress   String          @map("delivery_address") @db.VarChar(500)
+  orderNote         String?         @map("order_note") @db.VarChar(500)
+  subtotalPkr       Decimal         @map("subtotal_pkr") @db.Decimal(12, 2)
+  deliveryChargePkr Decimal         @map("delivery_charge_pkr") @db.Decimal(12, 2)
+  totalPkr          Decimal         @map("total_pkr") @db.Decimal(12, 2)
+  paymentVerifiedAt DateTime?       @map("payment_verified_at") @db.Timestamptz(6)
+  dispatchedAt      DateTime?       @map("dispatched_at") @db.Timestamptz(6)
+  deliveredAt       DateTime?       @map("delivered_at") @db.Timestamptz(6)
+  deliveredBy       String?         @map("delivered_by") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  items             OrderItem[]
+  checklistSteps    ChecklistStep[]
+
+  @@index([customerUserId, createdAt(sort: Desc)], map: "orders_customer_user_id_created_at_idx")
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId      String  @map("order_id") @db.Uuid
+  productId    String  @map("product_id") @db.Uuid
+  productTitle String  @map("product_title") @db.VarChar(200)
+  productSku   String  @map("product_sku") @db.VarChar(50)
+  quantity     Int
+  unitPricePkr Decimal @map("unit_price_pkr") @db.Decimal(12, 2)
+  lineTotalPkr Decimal @map("line_total_pkr") @db.Decimal(12, 2)
+  order        Order   @relation(fields: [orderId], references: [id])
+  product      Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId], map: "order_items_order_id_idx")
+  @@map("order_items")
+}
+
+model ChecklistStep {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId     String    @map("order_id") @db.Uuid
+  stepNumber  Int       @map("step_number")
+  isCompleted Boolean   @default(false) @map("is_completed")
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedBy String?   @map("completed_by") @db.Uuid
+  order       Order     @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, stepNumber], map: "checklist_steps_order_step_key")
+  @@map("checklist_steps")
+}
+
+model IdempotencyKey {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId        String   @map("actor_id") @db.Uuid
+  requestId      String   @map("request_id") @db.Uuid
+  payloadHash    String   @map("payload_hash") @db.Char(64)
+  responseStatus Int      @map("response_status")
+  responseBody   Json     @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([actorId, requestId], map: "idempotency_keys_actor_request_key")
+  @@map("idempotency_keys")
 }

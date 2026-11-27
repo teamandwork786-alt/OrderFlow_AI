@@ -63,3 +63,67 @@ Branch: `feat/customer-sign-in-modes`
 | `docker compose --env-file .env.example up --build -d mock-oidc api web` | Rebuilt successfully; API, mock OIDC, web, and PostgreSQL reported healthy. |
 
 The customer CTA tests verify that Email, Google, and Apple use `portal=customer&mode=sign-in`, and account creation uses `portal=customer&mode=sign-up`. The mock issuer renders only the selected form; an omitted mode retains both forms. The internal staff portal remains unchanged.
+
+---
+
+# Slice 1B test evidence (customer places an order)
+
+Date: 2026-11-27
+Branch: `slice/1B-customer-order`
+Environment label: **native run** (sandbox, 2 vCPU, Node 22.23.5, PostgreSQL 16.15 started natively, system Google Chrome for Playwright). Docker is not available in this sandbox, so the Docker Compose rebuild is **not verified** here and is listed as a human task below.
+Method: tests were written first and run red (the SQL tests failed with `relation "orders" does not exist`, the API tests failed because the products table and routes were missing, the money test failed on the missing module), then the implementation was added.
+
+## Quality gate results
+
+| Command or check | Actual result |
+|---|---|
+| `npm run lint` | Passed. |
+| `npm run typecheck` | Passed. |
+| `npm run format:check` | Passed. |
+| `npm test` | Passed: 73 tests in 8 files (44 from Slice 1A, 24 API tests for 1B, 5 web money unit tests). |
+| `npm run test:sql` | Passed: 17 tests in 2 files (6 from Slice 1A, 11 for 1B). |
+| `npm run test:e2e` (system Chrome, API restarted first to reset the sign-in limiter) | Passed: 16 tests (14 from Slice 1A, 2 for 1B; the 1B journey test has six named steps). |
+| Public product list latency (`GET /api/v1/storefront/products`, 8 products, 200 sequential requests, local) | p50 2.6 ms, p95 5.4 ms, max 41.4 ms. Local, single machine; this is not a load test. |
+
+## Slice 1B cases
+
+| Case / Scenario | Condition | Result |
+|---|---|---|
+| 1B-S01 | `0002_orders` exists; deploy twice | PASS: one completed migration record. |
+| 1B-S02 | Order numbers unique `OF-NNNNNN`; set-once | PASS |
+| 1B-S03 / Sc65 | `total = subtotal + delivery`; non-negative money | PASS |
+| 1B-S04 | STOREFRONT needs customer and email; MANUAL has no customer; source set | PASS |
+| 1B-S05 | Token format, unique, set-once; customer set-once | PASS |
+| 1B-S06 | Lifecycle graph: all 8 allowed pairs succeed, every other pair is rejected | PASS |
+| 1B-S07 | Item `line_total = unit_price x quantity`, quantity 1..20 | PASS |
+| 1B-S08 | Checklist step 1..5, unique per order, completion flag consistent | PASS |
+| 1B-S09 | `(actor, request_id)` unique | PASS |
+| 1B-S10 | App role: insert and `FOR SHARE` read only; no UPDATE, DELETE or TRUNCATE; RO role has no base table access | PASS |
+| 1B-S11 / Sc65 | Timestamp CHECKs (dispatch needs payment time and order, delivery needs dispatch and deliverer) | PASS |
+| 1B-A01 | Public list hides `HIDDEN`, shows `OUT_OF_STOCK` | PASS |
+| 1B-A02 / Sc1 | Order from server prices, 5 checklist rows, audit allowlist, token not returned | PASS |
+| 1B-A03 | Anonymous create returns 401 | PASS |
+| 1B-A04 | Missing or wrong CSRF returns 403 | PASS |
+| 1B-A05 / Sc2 | Client prices and totals ignored | PASS |
+| 1B-A06, A07 | `PRICE_CHANGED` with `current_total`, decimal comparison | PASS |
+| 1B-A08 / Sc47 | Hidden, out-of-stock and unknown products return 422 with ids; nothing created | PASS |
+| 1B-A09, A10 | 14 invalid bodies return 400; boundary values accepted | PASS |
+| 1B-A11 to A15 | Idempotent replay, different payload 409, 5 concurrent duplicates create one order, no PII stored, failures not stored | PASS |
+| 1B-A16 | Per-user rate limit (10 per hour), other users unaffected | PASS |
+| 1B-A17 / Sc17 | `/my/orders` returns only own orders | PASS |
+| 1B-A18, A19 | Foreign and unknown order number give an identical 404; customer DTO has no internal fields | PASS |
+| 1B-A20 to A22 / Sc31 | 401 without session; staff roles get 403 on customer routes and on create; customer gets 403 on a staff permission | PASS |
+| 1B-A23 / Sc37 (part) | No customer edit route after submission | PASS |
+| 1B-A24 | Idempotency hash is a 64-character digest | PASS |
+| 1B-W01 | Client money helper (BigInt minor units) | PASS |
+| 1B-E01 | Browse, filter, search, cm/in toggle, quick view, no internal wording | PASS |
+| 1B-E02 to E06 | Bag survives reload, sign-in return to checkout, `PRICE_CHANGED` and `PRODUCT_UNAVAILABLE` messages (responses stubbed in the browser), single order on double click, awaiting-payment page with read-only address, other customer sees "Order not found", sign-out empties the bag | PASS |
+
+## Not verified here (be explicit)
+
+- Docker Compose rebuild with `--env-file .env.example` (human task; sandbox has no Docker). The grants file and migration were applied and re-applied natively through `npm run db:migrate`.
+- Manual checkout in a real browser by a person, and a review of the drafted product descriptions.
+- Scenario 37 second half (address request on another customer's order) belongs to Slice 4A by decision D12; 1B covers "no customer edit after submission".
+- Web fonts: the sandbox is offline, so screenshots show the Georgia fallback. The Google Fonts link is in `index.html` with `display=swap`.
+- The slide-out drawer and quick-view dialogs close with Escape and restore focus; they do not trap Tab focus. No assistive-technology testing was done.
+

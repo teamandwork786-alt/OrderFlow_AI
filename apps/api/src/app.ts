@@ -18,6 +18,9 @@ import { errorHandler } from "./http/middleware/error-handler.js";
 import { requirePermission } from "./http/middleware/require-permission.js";
 import { requireSession } from "./http/middleware/require-session.js";
 import { createAuthRouter } from "./http/routes/auth.js";
+import { createMyOrdersRouter } from "./http/routes/my-orders.js";
+import { createOrdersRouter } from "./http/routes/orders.js";
+import { createStorefrontRouter } from "./http/routes/storefront.js";
 
 export function createApp(): Application {
   const app = express();
@@ -68,6 +71,9 @@ export function createApp(): Application {
   });
 
   app.use("/api/v1", createAuthRouter({ config }));
+  app.use("/api/v1", createStorefrontRouter());
+  app.use("/api/v1", createOrdersRouter());
+  app.use("/api/v1", createMyOrdersRouter());
 
   if (config.NODE_ENV === "test") {
     app.get(

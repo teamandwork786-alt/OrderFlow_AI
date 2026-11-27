@@ -183,6 +183,148 @@ paths:
       responses:
         "403":
           $ref: "#/components/responses/ApiError"
+    post:
+      operationId: createOrder
+      summary: Customer places an order (Slice 1B)
+      description: >-
+        Requires a signed-in customer (`customer.order.create`), the
+        `X-CSRF-Token` header, and is limited per user (default 10 per hour).
+        Prices and totals are always computed by the server; any price or
+        total fields in the body are ignored. `expected_total` is only a
+        consent check. Only successful creates are stored for idempotency.
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created (or the stored result of an identical earlier request)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerOrder"
+        "400":
+          $ref: "#/components/responses/ApiError"
+        "401":
+          $ref: "#/components/responses/ApiError"
+        "403":
+          $ref: "#/components/responses/ApiError"
+        "409":
+          description: >-
+            `PRICE_CHANGED` (the error carries `current_total`, no order was
+            created) or `IDEMPOTENCY_CONFLICT` (same `request_id`, different payload).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: >-
+            `PRODUCT_UNAVAILABLE`: a product is unknown, hidden, out of stock or held.
+            The error carries `product_ids`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/storefront/products:
+    get:
+      operationId: listStorefrontProducts
+      summary: Public product list (Slice 1B)
+      security: []
+      responses:
+        "200":
+          description: Products that are not hidden
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorefrontProduct"
+  /api/v1/my/orders:
+    get:
+      operationId: listMyOrders
+      summary: The signed-in customer's own orders, newest first (Slice 1B)
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: Own orders only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, page_size, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomerOrder"
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/ApiError"
+        "403":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/my/orders/{orderNumber}:
+    get:
+      operationId: getMyOrder
+      summary: One of the signed-in customer's own orders (Slice 1B)
+      description: A foreign or unknown order number returns the same 404.
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: orderNumber
+          required: true
+          schema:
+            type: string
+            pattern: "^OF-[0-9]{6,}$"
+      responses:
+        "200":
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerOrder"
+        "401":
+          $ref: "#/components/responses/ApiError"
+        "403":
+          $ref: "#/components/responses/ApiError"
+        "404":
+          $ref: "#/components/responses/ApiError"
 components:
   securitySchemes:
     sessionCookie:
@@ -205,6 +347,172 @@ components:
             correlation_id:
               type: string
               format: uuid
+            current_total:
+              type: string
+              description: Present on PRICE_CHANGED
+            product_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: Present on PRODUCT_UNAVAILABLE
+    Money:
+      type: string
+      pattern: "^[0-9]{1,10}\\.[0-9]{2}$"
+      description: Decimal string with two places, in PKR
+    StorefrontProduct:
+      type: object
+      required:
+        [
+          id,
+          sku,
+          title,
+          description,
+          category,
+          finish,
+          dimensions_cm,
+          dimensions_in,
+          price,
+          availability,
+          is_held
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        finish:
+          type: string
+        dimensions_cm:
+          type: string
+        dimensions_in:
+          type: string
+        badge:
+          type: [string, "null"]
+        price:
+          $ref: "#/components/schemas/Money"
+        availability:
+          enum: [AVAILABLE, OUT_OF_STOCK]
+        is_held:
+          type: boolean
+    CreateOrderRequest:
+      type: object
+      required:
+        [
+          request_id,
+          expected_total,
+          recipient_name,
+          phone,
+          email,
+          delivery_address,
+          items
+        ]
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        expected_total:
+          type: string
+          pattern: "^[0-9]{1,10}(\\.[0-9]{1,2})?$"
+        recipient_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        phone:
+          type: string
+          pattern: "^\\+?[0-9]{10,15}$"
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        delivery_address:
+          type: string
+          minLength: 8
+          maxLength: 500
+        note:
+          type: string
+          maxLength: 500
+        items:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 20
+    CustomerOrderItem:
+      type: object
+      required: [product_title, product_sku, quantity, unit_price, line_total]
+      properties:
+        product_title:
+          type: string
+        product_sku:
+          type: string
+        quantity:
+          type: integer
+        unit_price:
+          $ref: "#/components/schemas/Money"
+        line_total:
+          $ref: "#/components/schemas/Money"
+    CustomerOrder:
+      type: object
+      description: >-
+        Customer-safe view. Never includes the public token, customer id,
+        checklist, audit events, payment reference or staff names.
+      required:
+        [
+          order_number,
+          lifecycle_status,
+          created_at,
+          subtotal_pkr,
+          delivery_charge_pkr,
+          total_pkr,
+          recipient_name,
+          recipient_phone,
+          delivery_address,
+          items
+        ]
+      properties:
+        order_number:
+          type: string
+        lifecycle_status:
+          enum:
+            [PENDING_PAYMENT, PAID, PREPARING, DISPATCHED, DELIVERED, CANCELLED]
+        created_at:
+          type: string
+          format: date-time
+        subtotal_pkr:
+          $ref: "#/components/schemas/Money"
+        delivery_charge_pkr:
+          $ref: "#/components/schemas/Money"
+        total_pkr:
+          $ref: "#/components/schemas/Money"
+        recipient_name:
+          type: string
+        recipient_phone:
+          type: string
+        delivery_address:
+          type: string
+        note:
+          type: [string, "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerOrderItem"
   responses:
     ApiError:
       description: Request failed

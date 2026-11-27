@@ -14,6 +14,14 @@ const eventDetails = {
   ROLE_ASSIGNED: z
     .object({ user_id: z.string().uuid(), role: z.string().min(1).max(50) })
     .strict(),
+  ORDER_CREATED: z
+    .object({
+      order_id: z.string().uuid(),
+      order_number: z.string().regex(/^OF-[0-9]{6,}$/),
+      source: z.enum(["STOREFRONT", "MANUAL"]),
+      line_count: z.number().int().min(1)
+    })
+    .strict(),
   PERMISSION_DENIED: z
     .object({
       permission: z.string().min(1).max(100),

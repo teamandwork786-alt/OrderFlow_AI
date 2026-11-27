@@ -18,7 +18,12 @@ const EnvironmentSchema = z
     SESSION_COOKIE_SECURE: z
       .enum(["true", "false"])
       .default("true")
-      .transform((value) => value === "true")
+      .transform((value) => value === "true"),
+    ORDER_RATE_LIMIT_PER_HOUR: z.coerce.number().int().min(1).default(10),
+    DELIVERY_CHARGE_PKR: z
+      .string()
+      .regex(/^[0-9]{1,10}(\.[0-9]{1,2})?$/)
+      .default("0.00")
   })
   .superRefine((config, context) => {
     if (

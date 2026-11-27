@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { buildOidcSignInUrl } from "../model/api-client.js";
 import { usePageTitle } from "../controller/page.js";
 import { PageFrame } from "./page-frame.js";
@@ -5,20 +6,22 @@ import { PageFrame } from "./page-frame.js";
 /** Public customer portal. It must never mention internal workspaces. */
 export function SignInPage() {
   usePageTitle("Sign in · Ghar ki Ronak");
-  const emailSignInUrl = buildOidcSignInUrl("/", "customer", "sign-in");
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnTo(searchParams.get("return_to"));
+  const emailSignInUrl = buildOidcSignInUrl(returnTo, "customer", "sign-in");
   const googleSignInUrl = buildOidcSignInUrl(
-    "/",
+    returnTo,
     "customer",
     "sign-in",
     "google"
   );
   const appleSignInUrl = buildOidcSignInUrl(
-    "/",
+    returnTo,
     "customer",
     "sign-in",
     "apple"
   );
-  const signUpUrl = buildOidcSignInUrl("/", "customer", "sign-up");
+  const signUpUrl = buildOidcSignInUrl(returnTo, "customer", "sign-up");
 
   return (
     <PageFrame variant="customer">
@@ -60,4 +63,11 @@ export function SignInPage() {
       </main>
     </PageFrame>
   );
+}
+
+/** Only same-site paths are accepted; anything else falls back to the root. */
+function safeReturnTo(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  if (value.includes("\\")) return "/";
+  return value;
 }

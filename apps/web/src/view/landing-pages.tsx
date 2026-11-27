@@ -8,21 +8,6 @@ export function RootLanding({ user }: { user: CurrentUser }) {
   return <Navigate to={user.landing_path} replace />;
 }
 
-export function ShopPlaceholder({ user }: { user: CurrentUser }) {
-  usePageTitle("Shop · Ghar ki Ronak");
-  if (!user.roles.includes("customer"))
-    return <Navigate to="/no-access" replace />;
-  return (
-    <PageFrame variant="customer" user={user}>
-      <WorkspaceCard
-        title="Shop"
-        user={user}
-        message="The storefront arrives in a later slice."
-      />
-    </PageFrame>
-  );
-}
-
 export function OrdersPlaceholder({ user }: { user: CurrentUser }) {
   usePageTitle("Orders · OrderFlow Operations");
   if (user.roles.includes("customer"))

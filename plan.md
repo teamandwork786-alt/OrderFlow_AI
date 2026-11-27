@@ -435,6 +435,7 @@ The vertical order accepts a small, listed amount of change to earlier work, eac
 - The Needs attention component (2A) takes groups as data; slices 1F, 2C, 3 and 4A each add a group, and 4B checks all five.
 - Order creation (1B) calls `stock.isHeld` behind an interface that returns "not held"; Slice 3 supplies the real implementation.
 - Order creation gains the single `email_outbox` insert in 1C inside the same transaction.
+- The delivery charge in 1B is the typed config value `DELIVERY_CHARGE_PKR` (default `0.00`); Slice 1D replaces it with the `system_settings` value and re-runs the 1B order total tests.
 - `PATCH /settings/operations` (1D) accepts each new key when its slice seeds it.
 - The queue and detail components built in 1E are the ones 2A extends; nothing is thrown away.
 - SQL constraint tests are written in the slice that creates each object and re-run at every gate.

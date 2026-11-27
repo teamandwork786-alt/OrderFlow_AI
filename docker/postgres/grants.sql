@@ -23,3 +23,12 @@ ALTER DEFAULT PRIVILEGES FOR ROLE orderflow_owner IN SCHEMA public
     REVOKE ALL ON TABLES FROM PUBLIC, orderflow_app, orderflow_ro;
 ALTER DEFAULT PRIVILEGES FOR ROLE orderflow_owner IN SCHEMA public
     REVOKE ALL ON SEQUENCES FROM PUBLIC, orderflow_app, orderflow_ro;
+
+-- Slice 1B (0002_orders). The app role may insert orders, lines, checklist
+-- rows and idempotency keys, and read products. UPDATE (updated_at) on
+-- products is required by PostgreSQL for SELECT ... FOR SHARE. No UPDATE on
+-- orders or order lines until the slice that needs it; never DELETE/TRUNCATE.
+GRANT SELECT ON products TO orderflow_app;
+GRANT UPDATE (updated_at) ON products TO orderflow_app;
+GRANT SELECT, INSERT ON orders, order_items, checklist_steps, idempotency_keys TO orderflow_app;
+GRANT USAGE ON SEQUENCE order_number_seq TO orderflow_app;

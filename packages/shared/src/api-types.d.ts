@@ -109,6 +109,64 @@ export interface paths {
     };
     get: operations["getStaffOrdersPlaceholder"];
     put?: never;
+    /**
+     * Customer places an order (Slice 1B)
+     * @description Requires a signed-in customer (`customer.order.create`), the `X-CSRF-Token` header, and is limited per user (default 10 per hour). Prices and totals are always computed by the server; any price or total fields in the body are ignored. `expected_total` is only a consent check. Only successful creates are stored for idempotency.
+     */
+    post: operations["createOrder"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/storefront/products": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Public product list (Slice 1B) */
+    get: operations["listStorefrontProducts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/my/orders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The signed-in customer's own orders, newest first (Slice 1B) */
+    get: operations["listMyOrders"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/my/orders/{orderNumber}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * One of the signed-in customer's own orders (Slice 1B)
+     * @description A foreign or unknown order number returns the same 404.
+     */
+    get: operations["getMyOrder"];
+    put?: never;
     post?: never;
     delete?: never;
     options?: never;
@@ -126,7 +184,74 @@ export interface components {
         message: string;
         /** Format: uuid */
         correlation_id: string;
+        /** @description Present on PRICE_CHANGED */
+        current_total?: string;
+        /** @description Present on PRODUCT_UNAVAILABLE */
+        product_ids?: string[];
       };
+    };
+    /** @description Decimal string with two places, in PKR */
+    Money: string;
+    StorefrontProduct: {
+      /** Format: uuid */
+      id: string;
+      sku: string;
+      title: string;
+      description: string;
+      category: string;
+      finish: string;
+      dimensions_cm: string;
+      dimensions_in: string;
+      badge?: string | null;
+      price: components["schemas"]["Money"];
+      /** @enum {unknown} */
+      availability: "AVAILABLE" | "OUT_OF_STOCK";
+      is_held: boolean;
+    };
+    CreateOrderRequest: {
+      /** Format: uuid */
+      request_id: string;
+      expected_total: string;
+      recipient_name: string;
+      phone: string;
+      /** Format: email */
+      email: string;
+      delivery_address: string;
+      note?: string;
+      items: {
+        /** Format: uuid */
+        product_id: string;
+        quantity: number;
+      }[];
+    };
+    CustomerOrderItem: {
+      product_title: string;
+      product_sku: string;
+      quantity: number;
+      unit_price: components["schemas"]["Money"];
+      line_total: components["schemas"]["Money"];
+    };
+    /** @description Customer-safe view. Never includes the public token, customer id, checklist, audit events, payment reference or staff names. */
+    CustomerOrder: {
+      order_number: string;
+      /** @enum {unknown} */
+      lifecycle_status:
+        | "PENDING_PAYMENT"
+        | "PAID"
+        | "PREPARING"
+        | "DISPATCHED"
+        | "DELIVERED"
+        | "CANCELLED";
+      /** Format: date-time */
+      created_at: string;
+      subtotal_pkr: components["schemas"]["Money"];
+      delivery_charge_pkr: components["schemas"]["Money"];
+      total_pkr: components["schemas"]["Money"];
+      recipient_name: string;
+      recipient_phone: string;
+      delivery_address: string;
+      note?: string | null;
+      items: components["schemas"]["CustomerOrderItem"][];
     };
   };
   responses: {
@@ -311,6 +436,131 @@ export interface operations {
     requestBody?: never;
     responses: {
       403: components["responses"]["ApiError"];
+    };
+  };
+  createOrder: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateOrderRequest"];
+      };
+    };
+    responses: {
+      /** @description Order created (or the stored result of an identical earlier request) */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CustomerOrder"];
+        };
+      };
+      400: components["responses"]["ApiError"];
+      401: components["responses"]["ApiError"];
+      403: components["responses"]["ApiError"];
+      /** @description `PRICE_CHANGED` (the error carries `current_total`, no order was created) or `IDEMPOTENCY_CONFLICT` (same `request_id`, different payload). */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiError"];
+        };
+      };
+      /** @description `PRODUCT_UNAVAILABLE`: a product is unknown, hidden, out of stock or held. The error carries `product_ids`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiError"];
+        };
+      };
+      429: components["responses"]["ApiError"];
+    };
+  };
+  listStorefrontProducts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Products that are not hidden */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["StorefrontProduct"][];
+          };
+        };
+      };
+    };
+  };
+  listMyOrders: {
+    parameters: {
+      query?: {
+        page?: number;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Own orders only */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["CustomerOrder"][];
+            page: number;
+            page_size: number;
+            total: number;
+          };
+        };
+      };
+      401: components["responses"]["ApiError"];
+      403: components["responses"]["ApiError"];
+    };
+  };
+  getMyOrder: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        orderNumber: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The order */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CustomerOrder"];
+        };
+      };
+      401: components["responses"]["ApiError"];
+      403: components["responses"]["ApiError"];
+      404: components["responses"]["ApiError"];
     };
   };
 }

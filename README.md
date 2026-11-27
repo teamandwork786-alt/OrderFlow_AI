@@ -63,6 +63,8 @@ docker compose down         # stop
 - Seed and reset scripts are destructive and run only with `ALLOW_DESTRUCTIVE_SEED=true`.
 - `.env.example`, Docker Compose and the scripts below are created by Slice 1A; until then these steps do not work.
 
+**Slice 1B (customer places an order), pending human review.** `/shop`, `/cart`, `/checkout`, `/my-orders` and `/my-orders/:orderNumber` work against `GET /api/v1/storefront/products`, `POST /api/v1/orders`, `GET /api/v1/my/orders` and `GET /api/v1/my/orders/:orderNumber`. `npm run db:migrate` applies `0002_orders`; `ALLOW_DESTRUCTIVE_SEED=true npm run db:seed` adds the eight Ghar ki Ronak products. New settings in `.env.example`: `ORDER_RATE_LIMIT_PER_HOUR` and `DELIVERY_CHARGE_PKR`. Orders stay "Awaiting payment" until the payment slice. Test evidence: `docs/evidence/test-evidence.md`.
+
 Commands (`AGENTS.md` section 12): `npm run db:migrate`, `db:seed`, `db:reset`, `npm test`, `npm run test:sql`, `npm run test:e2e`, `npm run lint`, `npm run typecheck`, `npm run format:check`. Some of these are added by the slices that need them.
 
 ## Roles and access control (RBAC)

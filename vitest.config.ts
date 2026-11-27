@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     include: [
       "apps/api/tests/**/*.test.ts",
-      "apps/mock-oidc/tests/**/*.test.ts"
+      "apps/mock-oidc/tests/**/*.test.ts",
+      "apps/web/tests/unit/**/*.test.ts"
     ],
     exclude: ["apps/api/tests/sql/**"],
     globalSetup: ["apps/api/tests/support/global-setup.ts"],

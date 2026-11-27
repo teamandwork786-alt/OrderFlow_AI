@@ -1,12 +1,21 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation
+} from "react-router-dom";
 import type { ReactNode } from "react";
 import { useCurrentUser } from "../controller/auth.js";
 import {
   NoAccessPage,
   OrdersPlaceholder,
-  RootLanding,
-  ShopPlaceholder
+  RootLanding
 } from "./landing-pages.js";
+import { CartPage } from "./cart-page.js";
+import { CheckoutPage } from "./checkout-page.js";
+import { OrderDetailPage, MyOrdersPage } from "./my-orders-pages.js";
+import { ShopPage } from "./shop-page.js";
 import { AdminSignInPage } from "./admin-sign-in-page.js";
 import { SignInPage } from "./sign-in-page.js";
 
@@ -50,6 +59,23 @@ function AuthenticatedRoute({
   );
 }
 
+/** A signed-in customer page; visitors are sent to sign in and then back. */
+function CustomerRoute({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const returnTo = encodeURIComponent(`${location.pathname}${location.search}`);
+  return (
+    <AuthenticatedRoute signInPath={`/sign-in?return_to=${returnTo}`}>
+      {(user) =>
+        user.roles.includes("customer") ? (
+          children
+        ) : (
+          <Navigate to="/no-access" replace />
+        )
+      }
+    </AuthenticatedRoute>
+  );
+}
+
 function RoutedApp() {
   return (
     <>
@@ -64,12 +90,30 @@ function RoutedApp() {
             </AuthenticatedRoute>
           }
         />
+        <Route path="/shop" element={<ShopPage />} />
+        <Route path="/cart" element={<CartPage />} />
         <Route
-          path="/shop"
+          path="/checkout"
           element={
-            <AuthenticatedRoute>
-              {(user) => <ShopPlaceholder user={user} />}
-            </AuthenticatedRoute>
+            <CustomerRoute>
+              <CheckoutPage />
+            </CustomerRoute>
+          }
+        />
+        <Route
+          path="/my-orders"
+          element={
+            <CustomerRoute>
+              <MyOrdersPage />
+            </CustomerRoute>
+          }
+        />
+        <Route
+          path="/my-orders/:orderNumber"
+          element={
+            <CustomerRoute>
+              <OrderDetailPage />
+            </CustomerRoute>
           }
         />
         <Route
