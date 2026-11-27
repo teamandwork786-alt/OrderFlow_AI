@@ -49,6 +49,7 @@ export class OidcIssuerAdapter {
       client_id: this.config.OIDC_CLIENT_ID,
       redirect_uri: this.config.OIDC_REDIRECT_URI,
       response_type: "code",
+      prompt: "login",
       scope: this.config.OIDC_SCOPES,
       claims: JSON.stringify({
         id_token: {

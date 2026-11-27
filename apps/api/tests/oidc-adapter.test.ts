@@ -117,6 +117,7 @@ describe("Slice 1A ID token verification", () => {
     expect(url.pathname).toBe("/auth");
     expect(url.searchParams.get("portal")).toBe("customer");
     expect(url.searchParams.get("mode")).toBeNull();
+    expect(url.searchParams.get("prompt")).toBe("login");
     expect(JSON.parse(url.searchParams.get("claims") ?? "{}")).toEqual({
       id_token: {
         name: { essential: true },
@@ -132,6 +133,7 @@ describe("Slice 1A ID token verification", () => {
       const url = await adapter.createAuthorizationUrl(login);
       expect(url.searchParams.get("portal")).toBe("customer");
       expect(url.searchParams.get("mode")).toBe(mode);
+      expect(url.searchParams.get("prompt")).toBe("login");
     }
   );
 
