@@ -3,6 +3,7 @@ import request from "supertest";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  CreateOrderBodySchema,
   CustomerOrderSchema,
   StorefrontProductListSchema
 } from "@orderflow/shared";
@@ -502,6 +503,27 @@ describe("Slice 1B customer places an order", () => {
     expect(after.body.delivery_address).toBe(
       "House 12, Street 4, Gulberg, Lahore"
     );
+  });
+
+  it("1B-A25 returns 409, not a server error, when a stored key has no readable order", async () => {
+    const { hashPayload } = await import("../src/modules/idempotency/index.js");
+    const customer = await createCustomer();
+    const body = orderBody([{ product_id: second.id, quantity: 1 }], "250.00");
+    const parsed = CreateOrderBodySchema.parse(body);
+    await owner.query(
+      `INSERT INTO idempotency_keys (actor_id, request_id, payload_hash, response_status, response_body)
+       VALUES ($1, $2, $3, 201, $4::jsonb)`,
+      [
+        customer.userId,
+        parsed.request_id,
+        hashPayload(parsed),
+        JSON.stringify({ order_id: randomUUID(), order_number: "OF-999998" })
+      ]
+    );
+    const response = await post(app, customer, body);
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect(await countOrders(customer.userId)).toBe(0);
   });
 
   it("1B-A24 keeps recipient data out of the logs and the idempotency hash", async () => {

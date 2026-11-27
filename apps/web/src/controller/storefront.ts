@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { StorefrontProduct } from "@orderflow/shared";
 import {
@@ -32,6 +32,24 @@ export interface PricedLine {
 export function usePricedCart() {
   const cart = useCart();
   const products = useProducts();
+  const [removedCount, setRemovedCount] = useState(0);
+
+  // A product that is no longer listed would make checkout fail with
+  // PRODUCT_UNAVAILABLE and could not be removed, so drop it from the bag.
+  const { prune } = cart;
+  const cartLines = cart.lines;
+  const productList = products.data;
+  useEffect(() => {
+    if (!productList) return;
+    const known = new Set(productList.map((item) => item.id));
+    const stale = cartLines
+      .map((line) => line.product_id)
+      .filter((id) => !known.has(id));
+    if (stale.length === 0) return;
+    prune(stale);
+    setRemovedCount((count) => count + stale.length);
+  }, [productList, cartLines, prune]);
+
   return useMemo(() => {
     const byId = new Map((products.data ?? []).map((item) => [item.id, item]));
     const priced: PricedLine[] = [];
@@ -61,11 +79,12 @@ export function usePricedCart() {
       products,
       lines: priced,
       missingIds: products.data ? missing : [],
+      removedCount,
       unavailable,
       subtotalMinor,
       expectedTotal: formatMinor(subtotalMinor)
     };
-  }, [cart, products]);
+  }, [cart, products, removedCount]);
 }
 
 export function useMyOrders(page: number) {

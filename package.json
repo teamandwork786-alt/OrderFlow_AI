@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "api:types": "openapi-typescript api-spec/openapi.yaml -o packages/shared/src/api-types.d.ts",
-    "build": "npm run build --workspace @orderflow/shared && npm run build --workspace @orderflow/api && npm run build --workspace @orderflow/mock-oidc && npm run build --workspace @orderflow/web",
+    "build": "npm run db:generate && npm run build --workspace @orderflow/shared && npm run build --workspace @orderflow/api && npm run build --workspace @orderflow/mock-oidc && npm run build --workspace @orderflow/web",
     "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env scripts/db-migrate.mjs",
     "db:seed": "node --env-file-if-exists=.env.example --env-file-if-exists=.env --import tsx apps/api/scripts/seed.ts",
     "format:check": "prettier --check .",
@@ -22,7 +22,10 @@
     "test": "node --env-file-if-exists=.env.example --env-file-if-exists=.env node_modules/vitest/vitest.mjs run",
     "test:e2e": "node --env-file-if-exists=.env.example --env-file-if-exists=.env node_modules/@playwright/test/cli.js test",
     "test:sql": "node --env-file-if-exists=.env.example --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.sql.config.ts",
-    "typecheck": "npm run build --workspace @orderflow/shared && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/mock-oidc/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p packages/shared/tsconfig.json"
+    "typecheck": "npm run db:generate && npm run build --workspace @orderflow/shared && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/mock-oidc/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p packages/shared/tsconfig.json",
+    "db:generate": "npm run db:generate --workspace @orderflow/api",
+    "pretest": "npm run db:generate",
+    "pretest:sql": "npm run db:generate"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

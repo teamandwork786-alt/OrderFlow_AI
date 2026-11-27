@@ -80,9 +80,9 @@ Method: tests were written first and run red (the SQL tests failed with `relatio
 | `npm run lint` | Passed. |
 | `npm run typecheck` | Passed. |
 | `npm run format:check` | Passed. |
-| `npm test` | Passed: 73 tests in 8 files (44 from Slice 1A, 24 API tests for 1B, 5 web money unit tests). |
+| `npm test` | Passed: 74 tests in 8 files (44 from Slice 1A, 25 API tests for 1B, 5 web money unit tests). |
 | `npm run test:sql` | Passed: 17 tests in 2 files (6 from Slice 1A, 11 for 1B). |
-| `npm run test:e2e` (system Chrome, API restarted first to reset the sign-in limiter) | Passed: 16 tests (14 from Slice 1A, 2 for 1B; the 1B journey test has six named steps). |
+| `npm run test:e2e` (system Chrome, API restarted first to reset the sign-in limiter) | Passed: 17 tests (14 from Slice 1A, 3 for 1B; the 1B journey test has six named steps). |
 | Public product list latency (`GET /api/v1/storefront/products`, 8 products, 200 sequential requests, local) | p50 2.6 ms, p95 5.4 ms, max 41.4 ms. Local, single machine; this is not a load test. |
 
 ## Slice 1B cases
@@ -115,8 +115,10 @@ Method: tests were written first and run red (the SQL tests failed with `relatio
 | 1B-A20 to A22 / Sc31 | 401 without session; staff roles get 403 on customer routes and on create; customer gets 403 on a staff permission | PASS |
 | 1B-A23 / Sc37 (part) | No customer edit route after submission | PASS |
 | 1B-A24 | Idempotency hash is a 64-character digest | PASS |
+| 1B-A25 | A stored idempotency key with no readable order returns 409, not a server error | PASS |
 | 1B-W01 | Client money helper (BigInt minor units) | PASS |
 | 1B-E01 | Browse, filter, search, cm/in toggle, quick view, no internal wording | PASS |
+| 1B-E07 | A bag line for a product that is no longer sold is removed with a notice | PASS |
 | 1B-E02 to E06 | Bag survives reload, sign-in return to checkout, `PRICE_CHANGED` and `PRODUCT_UNAVAILABLE` messages (responses stubbed in the browser), single order on double click, awaiting-payment page with read-only address, other customer sees "Order not found", sign-out empties the bag | PASS |
 
 ## Not verified here (be explicit)
@@ -127,3 +129,5 @@ Method: tests were written first and run red (the SQL tests failed with `relatio
 - Web fonts: the sandbox is offline, so screenshots show the Georgia fallback. The Google Fonts link is in `index.html` with `display=swap`.
 - The slide-out drawer and quick-view dialogs close with Escape and restore focus; they do not trap Tab focus. No assistive-technology testing was done.
 
+
+Review follow-up (2026-11-27): after review against the latest GitHub branch, `lucide-react` was removed again (decision D2), stale bag lines are pruned, the bag Checkout control is a real disabled button when an item is unavailable, and `npm run db:generate` now runs before `typecheck`, `build`, `test` and `test:sql` so a stale Prisma client cannot cause type errors after pulling new models. Re-run results above are from this follow-up.

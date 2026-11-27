@@ -181,3 +181,23 @@ test("1B-E02 to E06 customer journey: bag, sign-in return, checkout, own orders,
     await context.close();
   });
 });
+
+test("1B-E07 a bag line for a product that is no longer sold is removed", async ({
+  page
+}) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem(
+      "orderflow.cart",
+      JSON.stringify([
+        { product_id: "00000000-0000-4000-8000-000000000000", quantity: 1 }
+      ])
+    );
+  });
+  await page.goto("/cart");
+  await expect(
+    page.getByText(/no longer sold and were removed/i)
+  ).toBeVisible();
+  await expect(page.getByText(/bag is empty/i)).toBeVisible();
+  const stored = await page.evaluate(() => window.sessionStorage.length);
+  expect(stored).toBe(0);
+});

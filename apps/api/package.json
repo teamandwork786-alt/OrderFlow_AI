@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
     "prisma": "prisma",
+    "db:generate": "prisma generate",
     "start": "node dist/server.js"
   },
   "dependencies": {

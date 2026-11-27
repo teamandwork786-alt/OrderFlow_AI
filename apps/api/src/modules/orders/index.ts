@@ -51,7 +51,15 @@ export async function createStorefrontOrder(
         actor.id,
         stored.responseBody
       );
-      if (replay) return replay;
+      if (!replay) {
+        // The key exists but its order cannot be read back for this user.
+        throw new DomainError(
+          "IDEMPOTENCY_CONFLICT",
+          "This request id was already used and its result is unavailable.",
+          409
+        );
+      }
+      return replay;
     }
 
     const requestedIds = [

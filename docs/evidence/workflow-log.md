@@ -39,4 +39,3 @@ Human follow-up:
 - Rebuild with `docker compose --env-file .env.example up --build` and walk through checkout once in a browser.
 - Review the drafted product descriptions in `apps/api/scripts/seed.ts`.
 - Record Gate 2 to 4 and the Accept decision in `plan.md` sections 9 and 10; merge.
-

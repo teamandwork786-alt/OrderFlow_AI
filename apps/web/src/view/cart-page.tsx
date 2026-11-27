@@ -23,9 +23,9 @@ export function CartPage() {
             Checking availability…
           </p>
         )}
-        {priced.missingIds.length > 0 && (
+        {priced.removedCount > 0 && (
           <p className="sf-badge sf-badge-warn" role="status">
-            Some items are no longer sold and were left out of your total.
+            Some items are no longer sold and were removed from your bag.
           </p>
         )}
         {priced.lines.length === 0 && !priced.products.isPending ? (
@@ -53,13 +53,15 @@ export function CartPage() {
               <Link className="sf-button sf-button-outline" to="/shop">
                 Continue shopping
               </Link>
-              <Link
-                className="sf-button"
-                to="/checkout"
-                aria-disabled={priced.unavailable.length > 0}
-              >
-                Checkout
-              </Link>
+              {priced.unavailable.length > 0 ? (
+                <button type="button" className="sf-button" disabled>
+                  Checkout
+                </button>
+              ) : (
+                <Link className="sf-button" to="/checkout">
+                  Checkout
+                </Link>
+              )}
             </div>
           </>
         )}
