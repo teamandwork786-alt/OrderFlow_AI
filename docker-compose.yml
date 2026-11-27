@@ -1,0 +1,139 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orderflow}
+      POSTGRES_USER: orderflow_owner
+      POSTGRES_PASSWORD: ${ORDERFLOW_OWNER_PASSWORD:?Set ORDERFLOW_OWNER_PASSWORD in .env}
+      ORDERFLOW_APP_PASSWORD: ${ORDERFLOW_APP_PASSWORD:?Set ORDERFLOW_APP_PASSWORD in .env}
+      ORDERFLOW_RO_PASSWORD: ${ORDERFLOW_RO_PASSWORD:?Set ORDERFLOW_RO_PASSWORD in .env}
+      IDENTITY_TEST_DATABASE_NAME: ${IDENTITY_TEST_DATABASE_NAME:-orderflow_test}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orderflow_owner -d orderflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - orderflow
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["bash", "scripts/db-migrate.sh"]
+    environment:
+      DATABASE_URL_OWNER: postgresql://orderflow_owner:${ORDERFLOW_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-orderflow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - orderflow
+
+  mock-oidc:
+    build:
+      context: .
+      dockerfile: apps/mock-oidc/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      MOCK_OIDC_PORT: 4000
+      MOCK_OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:4000}
+      MOCK_OIDC_DEMO_PASSWORD: ${MOCK_OIDC_DEMO_PASSWORD:?Set MOCK_OIDC_DEMO_PASSWORD in .env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-orderflow-web}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Set OIDC_CLIENT_SECRET in .env}
+      OIDC_COOKIE_SECRET: ${OIDC_COOKIE_SECRET:?Set OIDC_COOKIE_SECRET in .env}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:3000/api/v1/auth/oidc/callback}
+      BOOTSTRAP_OWNER_SUBJECT: ${BOOTSTRAP_OWNER_SUBJECT:-demo-owner}
+    ports:
+      - "${MOCK_OIDC_PORT:-4000}:4000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - orderflow
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      API_PORT: 3000
+      DATABASE_URL: postgresql://orderflow_app:${ORDERFLOW_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-orderflow}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:4000}
+      OIDC_INTERNAL_URL: http://mock-oidc:4000
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-orderflow-web}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Set OIDC_CLIENT_SECRET in .env}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:3000/api/v1/auth/oidc/callback}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    volumes:
+      - uploads:/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mock-oidc:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - orderflow
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+    ports:
+      - "${WEB_PORT:-5173}:4173"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4173/sign-in').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - orderflow
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  orderflow:
+    driver: bridge
