@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  oidcSubject String     @unique(map: "users_oidc_subject_key") @map("oidc_subject")
+  name        String     @db.VarChar(200)
+  email       String     @db.VarChar(320)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  userRoles   UserRole[]
+
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @db.VarChar(50)
+  description     String           @db.VarChar(200)
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @db.VarChar(100)
+  description     String           @db.VarChar(200)
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.VarChar(50)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId, userId], map: "user_roles_role_id_user_id_idx")
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.VarChar(50)
+  permissionId String     @map("permission_id") @db.VarChar(100)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId, roleId], map: "role_permissions_permission_id_role_id_idx")
+  @@map("role_permissions")
+}
+
+model AuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventType     String   @map("event_type") @db.VarChar(100)
+  actorType     String   @map("actor_type") @db.VarChar(20)
+  actorId       String?  @map("actor_id") @db.Uuid
+  details       Json     @default("{}") @db.JsonB
+  correlationId String   @map("correlation_id") @db.VarChar(100)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt], map: "audit_events_created_at_idx")
+  @@index([actorId, createdAt], map: "audit_events_actor_id_created_at_idx")
+  @@map("audit_events")
+}

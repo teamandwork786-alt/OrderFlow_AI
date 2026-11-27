@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: OrderFlow Identity API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Application and database health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, database]
+                properties:
+                  status:
+                    const: ok
+                  database:
+                    const: ok
+        "503":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/oidc/sign-in:
+    get:
+      operationId: beginOidcSignIn
+      security: []
+      parameters:
+        - in: query
+          name: return_to
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "302":
+          description: Redirect to the configured OpenID Connect issuer
+        "400":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/oidc/callback:
+    get:
+      operationId: completeOidcSignIn
+      security: []
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Set the session cookie and redirect to the validated local path
+        "400":
+          $ref: "#/components/responses/ApiError"
+        "401":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/csrf:
+    get:
+      operationId: getCsrfToken
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: CSRF token for the current session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [csrf_token]
+                properties:
+                  csrf_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/auth/sign-out:
+    post:
+      operationId: signOut
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session ended
+        "401":
+          $ref: "#/components/responses/ApiError"
+        "403":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/me:
+    get:
+      operationId: getCurrentUser
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current user's effective identity and landing
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - name
+                  - roles
+                  - permissions
+                  - allowed_checklist_steps
+                  - flags
+                  - landing_path
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  permissions:
+                    type: array
+                    items:
+                      type: string
+                  allowed_checklist_steps:
+                    type: array
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 5
+                  flags:
+                    type: object
+                    required: [admin_can_perform_staff_tasks]
+                    properties:
+                      admin_can_perform_staff_tasks:
+                        type: boolean
+                  landing_path:
+                    enum: [/shop, /orders]
+        "401":
+          $ref: "#/components/responses/ApiError"
+  /api/v1/orders:
+    get:
+      operationId: getStaffOrdersPlaceholder
+      security:
+        - sessionCookie: []
+      responses:
+        "403":
+          $ref: "#/components/responses/ApiError"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: orderflow_session
+  schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlation_id]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlation_id:
+              type: string
+              format: uuid
+  responses:
+    ApiError:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"

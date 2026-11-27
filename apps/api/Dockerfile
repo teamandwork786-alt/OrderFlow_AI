@@ -1,0 +1,21 @@
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/analytics/package.json apps/analytics/package.json
+COPY apps/mock-oidc/package.json apps/mock-oidc/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci
+
+COPY . .
+RUN DATABASE_URL=postgresql://generate:generate@localhost:5432/generate npm run prisma --workspace @orderflow/api -- generate --schema prisma/schema.prisma \
+    && npm run build
+
+EXPOSE 3000
+CMD ["npm", "run", "start", "--workspace", "@orderflow/api"]
