@@ -131,3 +131,24 @@ Method: tests were written first and run red (the SQL tests failed with `relatio
 
 
 Review follow-up (2026-11-27): after review against the latest GitHub branch, `lucide-react` was removed again (decision D2), stale bag lines are pruned, the bag Checkout control is a real disabled button when an item is unavailable, and `npm run db:generate` now runs before `typecheck`, `build`, `test` and `test:sql` so a stale Prisma client cannot cause type errors after pulling new models. Re-run results above are from this follow-up.
+
+## Slice 1B local Compose run follow-up
+
+Date: 2026-11-27
+Branch: `S1B-Customer-order`
+Environment: local Docker Compose, Node 22, PostgreSQL 16.
+
+The initial browser run was against stale Slice 1A containers and an unseeded Compose database: the storefront endpoint returned 404 before rebuild, and the newly built endpoint returned an empty catalogue. After the user's approval, the current Slice 1B containers were rebuilt and the guarded seed was run against the configured local database.
+
+| Command or check | Actual result |
+|---|---|
+| `docker compose --env-file .env.example up --build -d api web mock-oidc` | Completed; API, web, mock OIDC, and PostgreSQL reported healthy. |
+| `ALLOW_DESTRUCTIVE_SEED=true node --env-file=.env.example --import tsx apps/api/scripts/seed.ts` | Completed; upserted the Owner, six demo identities, and eight catalogue products. |
+| `GET http://localhost:3000/health` and `GET http://localhost:4000/health` | Both returned healthy status. |
+| `GET http://localhost:3000/api/v1/storefront/products` | Returned HTTP 200 with all eight seeded products. |
+| `npm run lint`, `npm run typecheck`, `npm run format:check` | All passed. |
+| `npm test` | Passed: 74 tests in 8 files. |
+| `npm run test:sql` | Passed: 17 SQL tests in 2 files. |
+| `npm run test:e2e` | Passed: 17 Playwright tests, including the storefront journey and customer-isolation coverage. |
+
+This local Compose run supersedes the earlier note above that a Docker rebuild was not verified in the native sandbox. The human browser walkthrough and review of drafted product descriptions remain outstanding; no Accept decision is recorded.

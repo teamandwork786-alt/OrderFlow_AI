@@ -39,3 +39,9 @@ Human follow-up:
 - Rebuild with `docker compose --env-file .env.example up --build` and walk through checkout once in a browser.
 - Review the drafted product descriptions in `apps/api/scripts/seed.ts`.
 - Record Gate 2 to 4 and the Accept decision in `plan.md` sections 9 and 10; merge.
+
+## Slice 1B local run follow-up (2026-11-27)
+
+Rebuilt the Slice 1B API, web, and mock OIDC containers after discovering the running stack still served the Slice 1A API (the storefront route returned 404). The current API then returned an empty product list. With the user's approval, ran the guarded seed against the configured Compose database; it completed and the storefront returned all eight products.
+
+Verification after rebuild and seed: lint, typecheck, format check, 74 unit/integration tests, 17 SQL tests, and all 17 Playwright tests passed. API, mock OIDC, web, and PostgreSQL were healthy. The checkout walkthrough by a human and review of product descriptions are still pending. No slice acceptance or merge decision was made.
